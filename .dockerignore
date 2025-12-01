@@ -1,0 +1,13 @@
+target/
+.git/
+.gitignore
+README.md
+FEATURE_FLAGS.md
+RTDN_SETUP.md
+.env
+.env.local
+test_manual.rs
+tests/
+flake.nix
+*.db
+*.db-*
