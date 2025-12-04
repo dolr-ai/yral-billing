@@ -145,6 +145,24 @@ pub async fn handle_new_subscription_purchase(
             )
             .await?;
             grant_yral_pro_plan_access(admin_ic_agent, user_id_str).await?;
+
+            // Insert new purchase token into database
+            let expiry_native = expiry
+                .and_then(|time_str| chrono::DateTime::parse_from_rfc3339(&time_str).ok())
+                .map(|dt| dt.naive_utc())
+                .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+            let new_token = PurchaseToken::new(
+                user_id_str.to_string(),
+                subscription_response.purchase_token.clone(),
+                expiry_native,
+                PurchaseTokenStatus::AccessGranted,
+            );
+
+            diesel::insert_into(purchase_tokens)
+                .values(&new_token)
+                .execute(conn)?;
+
             Ok(())
         }
     }

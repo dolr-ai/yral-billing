@@ -154,9 +154,9 @@ async fn process_purchase_token(
 #[utoipa::path(
     post,
     path = "/purchase/verify",
-    request_body = VerifyRequest,
+    request_body = ApiResponse<()>,
     responses(
-        (status = 200, description = "Subscription verification successful", body = ApiResponse<VerifyData>),
+        (status = 200, description = "Subscription verification successful", body = ApiResponse<()>),
         (status = 400, description = "Bad request - subscription canceled, expired, or invalid", body = ApiResponse<()>),
         (status = 202, description = "Subscription is paused or on hold", body = ApiResponse<()>),
         (status = 500, description = "Internal server error", body = ApiResponse<()>)
@@ -178,4 +178,5 @@ pub async fn verify_purchase(
         &payload,
     )
     .await
+    .into()
 }
