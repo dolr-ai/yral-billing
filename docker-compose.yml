@@ -6,9 +6,7 @@ services:
     # image: ghcr.io/yourusername/yral-billing:latest
     
     # Or build locally
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/dolr-ai/yral-billing:latest
     container_name: yral-billing
     restart: unless-stopped
     ports:
@@ -20,20 +18,11 @@ services:
       # Server configuration
       - PORT=3000
       
-      # Google Cloud credentials (uncomment and set for production)
-      # - GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
-      
-      # Backend admin secret key (uncomment and set for production)
-      # - BACKEND_ADMIN_SECRET_KEY=${BACKEND_ADMIN_SECRET_KEY}
-      
       # Rust logging
       - RUST_LOG=info
     volumes:
       # Persistent database storage
       - ./data:/data
-      
-      # Mount Google credentials if needed (uncomment for production)
-      # - ./secrets/google-credentials.json:/app/secrets/google-credentials.json:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
       interval: 30s
@@ -42,11 +31,16 @@ services:
       start_period: 10s
     networks:
       - yral-network
+    secrets:
+      - google_service_account_json
+      - backend_admin_secret_key
+
+secrets:
+  google_service_account_json:
+    external: true
+  backend_admin_secret_key:
+    external: true
 
 networks:
   yral-network:
     driver: bridge
-
-volumes:
-  data:
-    driver: local
