@@ -15,6 +15,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 COPY migrations ./migrations
+COPY static ./static
 
 # Build the application
 RUN cargo build --release && \
