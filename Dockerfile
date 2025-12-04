@@ -47,8 +47,12 @@ COPY --from=builder /app/target/release/yral-billing .
 # Copy migrations for runtime execution
 COPY --from=builder /app/migrations ./migrations
 
-# Change ownership
-RUN chown -R app:app /app
+# Copy entrypoint script
+COPY entrypoint.sh /app/entrypoint.sh
+
+# Change ownership and make entrypoint executable
+RUN chown -R app:app /app && \
+    chmod +x /app/entrypoint.sh
 
 USER app
 
@@ -62,4 +66,5 @@ EXPOSE 3000
 ENV PORT=3000
 ENV DATABASE_URL=/data/billing.db
 
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["./yral-billing"]
