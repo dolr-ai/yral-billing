@@ -1,44 +1,75 @@
 # Build stage
-FROM rust:latest as builder
+FROM rust:1.75-slim as builder
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    libsqlite3-dev \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy manifest files
+# Copy manifest files first for better layer caching
 COPY Cargo.toml Cargo.lock ./
 
-# Copy source code
+# Create a dummy source to cache dependencies
+RUN mkdir src && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "pub fn run() {}" > src/lib.rs
+
+# Build dependencies (this layer will be cached)
+RUN cargo build --release && \
+    rm -rf src target/release/yral-billing* target/release/deps/yral_billing*
+
+# Copy the actual source code
 COPY src ./src
 COPY migrations ./migrations
 
-# Build the application
-RUN cargo build --release
+# Build the actual application
+RUN cargo build --release && \
+    strip target/release/yral-billing
 
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install required dependencies
+# Install runtime dependencies
 RUN apt-get update && \
     apt-get install -y \
     libsqlite3-0 \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
 RUN groupadd -r app && useradd -r -g app app
 
-# Create data directory
-RUN mkdir -p /data && chown app:app /data
+# Create necessary directories
+RUN mkdir -p /app /data && \
+    chown -R app:app /app /data
 
 WORKDIR /app
 
 # Copy binary from builder stage
 COPY --from=builder /app/target/release/yral-billing .
 
+# Copy migrations for runtime execution
+COPY --from=builder /app/migrations ./migrations
+
 # Change ownership
 RUN chown -R app:app /app
 
 USER app
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
 EXPOSE 3000
+
+# Set default environment variables (can be overridden)
+ENV PORT=3000
+ENV DATABASE_URL=/data/billing.db
 
 CMD ["./yral-billing"]

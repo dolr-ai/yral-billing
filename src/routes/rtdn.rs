@@ -1,12 +1,27 @@
+use std::sync::Arc;
+
+use crate::auth::{self, GoogleAuth};
+use crate::error::AppError;
+use crate::model::PurchaseToken;
+use crate::routes::goole_play_billing_helpers::{
+    acknowledge_google_play, fetch_google_play_purchase_details,
+};
+use crate::routes::purchase_token_helpers::verify_subcription_response_for_active_status;
+use crate::routes::utils::{grant_yral_pro_plan_access, revoke_yral_pro_plan_access};
 use crate::types::{
     one_time_product_notification_type, subscription_notification_type, DeveloperNotification,
-    PubSubMessage,
+    GooglePlaySubscriptionResponse, PubSubMessage, PurchaseTokenStatus,
 };
+use axum::handler;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use base64::prelude::*;
+use diesel::prelude::*;
 use serde_json;
 
-pub async fn handle_rtdn_webhook(Json(payload): Json<PubSubMessage>) -> impl IntoResponse {
+pub async fn handle_rtdn_webhook(
+    axum::extract::State(app_state): axum::extract::State<crate::AppState>,
+    Json(payload): Json<PubSubMessage>,
+) -> impl IntoResponse {
     println!("Received RTDN webhook: {:?}", payload);
 
     // Decode the base64 message data
@@ -36,13 +51,13 @@ pub async fn handle_rtdn_webhook(Json(payload): Json<PubSubMessage>) -> impl Int
     };
 
     // Process the notification
-    match process_notification(&notification).await {
+    match process_notification(&notification, &app_state).await {
         Ok(_) => {
             println!(
                 "Successfully processed notification for package: {}",
                 notification.package_name
             );
-            // HTTP 200 acknowledges the message to Pub/Sub
+            // HTTP 200 acknowledges the message to Pub/Sub - Google requires simple success response
             (StatusCode::OK, "OK")
         }
         Err(e) => {
@@ -56,6 +71,7 @@ pub async fn handle_rtdn_webhook(Json(payload): Json<PubSubMessage>) -> impl Int
 
 async fn process_notification(
     notification: &DeveloperNotification,
+    app_state: &crate::AppState,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     println!(
         "Processing notification for package: {}",
@@ -65,13 +81,11 @@ async fn process_notification(
 
     // Handle subscription notifications
     if let Some(sub_notification) = &notification.subscription_notification {
-        handle_subscription_notification(sub_notification).await?;
+        handle_subscription_notification(sub_notification, app_state, &notification.package_name)
+            .await?;
     }
 
     // Handle one-time product notifications
-    if let Some(product_notification) = &notification.one_time_product_notification {
-        handle_one_time_product_notification(product_notification).await?;
-    }
 
     // Handle test notifications
     if let Some(test_notification) = &notification.test_notification {
@@ -81,8 +95,140 @@ async fn process_notification(
     Ok(())
 }
 
+pub async fn handle_new_subscription_purchase(
+    conn: &mut SqliteConnection,
+    auth: Option<&Arc<GoogleAuth>>,
+    admin_ic_agent: &ic_agent::Agent,
+    package_name: &str,
+    user_id_str: &str,
+    subscription_response: &GooglePlaySubscriptionResponse,
+) -> Result<(), AppError> {
+    use crate::schema::purchase_tokens::dsl::*;
+
+    // Check if this purchase token already exists
+    let existing_token: Option<PurchaseToken> = purchase_tokens
+        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .first(conn)
+        .optional()?;
+
+    let expiry = subscription_response
+        .line_items
+        .iter()
+        .find(|item| item.product_id == subscription_response.line_items[0].product_id)
+        .map(|item| item.expiry_time.clone())
+        .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+    match existing_token {
+        Some(token) => {
+            // Update existing token with new expiry and status
+            let expiry_native = expiry
+                .and_then(|time_str| chrono::DateTime::parse_from_rfc3339(&time_str).ok())
+                .map(|dt| dt.naive_utc())
+                .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+            diesel::update(purchase_tokens.filter(id.eq(&token.id)))
+                .set((
+                    expiry_at.eq(expiry_native),
+                    status.eq(PurchaseTokenStatus::AccessGranted),
+                ))
+                .execute(conn)?;
+
+            Ok(())
+        }
+        None => {
+            verify_subcription_response_for_active_status(subscription_response)?;
+            acknowledge_google_play(
+                package_name,
+                &subscription_response.purchase_token,
+                subscription_response,
+                auth,
+            )
+            .await?;
+            grant_yral_pro_plan_access(admin_ic_agent, user_id_str).await?;
+            Ok(())
+        }
+    }
+}
+
+async fn handle_subscription_renewal(
+    conn: &mut SqliteConnection,
+    admin_ic_agent: &ic_agent::Agent,
+    user_id_param: &str,
+    subscription_response: &GooglePlaySubscriptionResponse,
+) -> Result<(), AppError> {
+    use crate::schema::purchase_tokens::dsl::*;
+
+    // Check if this purchase token already exists
+    let existing_token: Option<PurchaseToken> = purchase_tokens
+        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .first(conn)
+        .optional()?;
+
+    let expiry = subscription_response
+        .line_items
+        .iter()
+        .find(|item| item.product_id == subscription_response.line_items[0].product_id)
+        .map(|item| item.expiry_time.clone())
+        .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+    match existing_token {
+        Some(token) => {
+            // Update existing token with new expiry and status
+            let expiry_native = expiry
+                .and_then(|time_str| chrono::DateTime::parse_from_rfc3339(&time_str).ok())
+                .map(|dt| dt.naive_utc())
+                .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+            grant_yral_pro_plan_access(admin_ic_agent, user_id_param).await?;
+
+            diesel::update(purchase_tokens.filter(id.eq(&token.id)))
+                .set((
+                    expiry_at.eq(expiry_native),
+                    status.eq(PurchaseTokenStatus::AccessGranted),
+                ))
+                .execute(conn)?;
+
+            Ok(())
+        }
+        None => Err(AppError::SubscriptionInvalidLineItems),
+    }
+}
+
+async fn handle_revoking_user_access(
+    conn: &mut SqliteConnection,
+    admin_ic_agent: &ic_agent::Agent,
+    user_id_str: &str,
+    subscription_response: &GooglePlaySubscriptionResponse,
+) -> Result<(), AppError> {
+    use crate::schema::purchase_tokens::dsl::*;
+
+    // Check if this purchase token already exists
+    let existing_token: Option<PurchaseToken> = purchase_tokens
+        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .first(conn)
+        .optional()?;
+    match existing_token {
+        Some(token) => {
+            // Update existing token with new expiry and status
+
+            revoke_yral_pro_plan_access(admin_ic_agent, user_id_str).await?;
+
+            diesel::update(purchase_tokens.filter(id.eq(&token.id)))
+                .set((status.eq(PurchaseTokenStatus::Expired),))
+                .execute(conn)?;
+
+            Ok(())
+        }
+        None => {
+            return Err(AppError::SubscriptionInvalidLineItems);
+        }
+    }
+}
+
 async fn handle_subscription_notification(
     notification: &crate::types::SubscriptionNotification,
+    app_state: &crate::AppState,
+    package_name: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let notification_type = notification.notification_type;
     let purchase_token = &notification.purchase_token;
@@ -93,95 +239,120 @@ async fn handle_subscription_notification(
         notification_type, purchase_token, subscription_id
     );
 
+    // Get user ID from purchase details using obfuscatedAccountId set by client
+    let google_play_subscription_response = fetch_google_play_purchase_details(
+        package_name,
+        &purchase_token,
+        app_state.google_auth.as_ref(),
+    )
+    .await?;
+
+    let user_id = google_play_subscription_response
+        .external_account_identifiers
+        .clone()
+        .ok_or(AppError::ExternalAccountIdentifiersMissing)?
+        .external_account_id
+        .ok_or(AppError::ExternalAccountIdentifiersMissing)?;
+
+    println!("Processing subscription notification for user: {}", user_id);
+
     match notification_type {
         subscription_notification_type::SUBSCRIPTION_PURCHASED => {
-            println!("New subscription purchased");
-            // TODO: Store subscription in database, send confirmation email, etc.
+            handle_new_subscription_purchase(
+                &mut app_state
+                    .get_db_connection()
+                    .map_err(|_| AppError::DatabaseConnection)?,
+                app_state.google_auth.as_ref(),
+                app_state
+                    .admin_ic_agent
+                    .as_ref()
+                    .ok_or(AppError::AdminIcAgentMissing)?,
+                package_name,
+                &user_id,
+                &google_play_subscription_response,
+            )
+            .await?;
         }
         subscription_notification_type::SUBSCRIPTION_RENEWED => {
-            println!("Subscription renewed");
-            // TODO: Update subscription expiry, send renewal confirmation
+            handle_subscription_renewal(
+                &mut app_state
+                    .get_db_connection()
+                    .map_err(|_| AppError::DatabaseConnection)?,
+                app_state
+                    .admin_ic_agent
+                    .as_ref()
+                    .ok_or(AppError::AdminIcAgentMissing)?,
+                &user_id,
+                &google_play_subscription_response,
+            )
+            .await?;
         }
         subscription_notification_type::SUBSCRIPTION_CANCELED => {
-            println!("Subscription canceled");
-            // TODO: Mark subscription as canceled, handle cancellation logic
+            println!("Subscription canceled for user: {}", user_id);
+            // we don't need to anything as we will expire the subscriptino on expiry
         }
-        subscription_notification_type::SUBSCRIPTION_EXPIRED => {
-            println!("Subscription expired");
-            // TODO: Disable user access, send expiry notification
-        }
+
         subscription_notification_type::SUBSCRIPTION_RECOVERED => {
-            println!("Subscription recovered from account hold");
-            // TODO: Restore user access
-        }
-        subscription_notification_type::SUBSCRIPTION_ON_HOLD => {
-            println!("Subscription on hold");
-            // TODO: Temporarily suspend user access
+            // in case of recovered we need to grant access again and update the expiry the token was expired
+            handle_subscription_renewal(
+                &mut app_state
+                    .get_db_connection()
+                    .map_err(|_| AppError::DatabaseConnection)?,
+                app_state
+                    .admin_ic_agent
+                    .as_ref()
+                    .ok_or(AppError::AdminIcAgentMissing)?,
+                &user_id,
+                &google_play_subscription_response,
+            )
+            .await?;
         }
         subscription_notification_type::SUBSCRIPTION_IN_GRACE_PERIOD => {
-            println!("Subscription in grace period");
-            // TODO: Send payment retry notification
+            println!("Subscription in grace period for user: {}", user_id);
+            //Rignt now we are doing nothing about it
         }
         subscription_notification_type::SUBSCRIPTION_RESTARTED => {
-            println!("Subscription restarted");
-            // TODO: Restore subscription, update expiry
+            println!("Subscription restarted for user: {}", user_id);
+            // it is automatically handled in renewal flow
         }
         subscription_notification_type::SUBSCRIPTION_PRICE_CHANGE_CONFIRMED => {
-            println!("Subscription price change confirmed");
-            // TODO: Update subscription pricing in database
+            println!("Subscription price change confirmed for user: {}", user_id);
+            // right now we are not doing anything about it
         }
         subscription_notification_type::SUBSCRIPTION_DEFERRED => {
-            println!("Subscription deferred");
-            // TODO: Handle deferred billing
+            println!("Subscription deferred for user: {}", user_id);
+            // not doing anything about it right now
         }
         subscription_notification_type::SUBSCRIPTION_PAUSED => {
-            println!("Subscription paused");
-            // TODO: Pause user access, update status
+            // we are not supporting subscription pause right now
+            println!("Subscription paused for user: {}", user_id);
         }
         subscription_notification_type::SUBSCRIPTION_PAUSE_SCHEDULE_CHANGED => {
-            println!("Subscription pause schedule changed");
-            // TODO: Update pause schedule
+            println!("Subscription pause schedule changed for user: {}", user_id);
+            // we are not supporting subscription pause right now
         }
-        subscription_notification_type::SUBSCRIPTION_REVOKED => {
-            println!("Subscription revoked");
-            // TODO: Immediately revoke access, handle refund if applicable
-        }
-        _ => {
-            println!(
-                "Unknown subscription notification type: {}",
-                notification_type
-            );
-        }
-    }
-
-    Ok(())
-}
-
-async fn handle_one_time_product_notification(
-    notification: &crate::types::OneTimeProductNotification,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let notification_type = notification.notification_type;
-    let purchase_token = &notification.purchase_token;
-    let sku = &notification.sku;
-
-    println!(
-        "One-time product notification - Type: {}, Token: {}, SKU: {}",
-        notification_type, purchase_token, sku
-    );
-
-    match notification_type {
-        one_time_product_notification_type::ONE_TIME_PRODUCT_PURCHASED => {
-            println!("One-time product purchased");
-            // TODO: Grant product access, send confirmation
-        }
-        one_time_product_notification_type::ONE_TIME_PRODUCT_CANCELED => {
-            println!("One-time product canceled");
-            // TODO: Revoke product access, handle refund
+        subscription_notification_type::SUBSCRIPTION_REVOKED
+        | subscription_notification_type::SUBSCRIPTION_EXPIRED
+        | subscription_notification_type::SUBSCRIPTION_ON_HOLD => {
+            //TODO: revoke access
+            handle_revoking_user_access(
+                &mut app_state
+                    .get_db_connection()
+                    .map_err(|e| AppError::DatabaseConnection)?,
+                app_state
+                    .admin_ic_agent
+                    .as_ref()
+                    .ok_or(AppError::AdminIcAgentMissing)?,
+                &user_id,
+                &google_play_subscription_response,
+            )
+            .await?;
+            println!("Subscription revoked for user: {}", user_id);
         }
         _ => {
             println!(
-                "Unknown one-time product notification type: {}",
-                notification_type
+                "Unknown subscription notification type: {} for user: {}",
+                notification_type, user_id
             );
         }
     }

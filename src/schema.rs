@@ -7,5 +7,6 @@ diesel::table! {
         purchase_token -> Text,
         status -> Text,
         created_at -> Timestamp,
+        expiry_at -> Timestamp,
     }
 }

@@ -1,224 +1,181 @@
 use crate::auth::GoogleAuth;
-use crate::model::{NewPurchaseToken, PurchaseToken};
-use crate::types::{PurchaseTokenStatus, VerifyRequest, VerifyResponse};
+use crate::error::{AppError, AppResult};
+use crate::model::PurchaseToken;
+use crate::routes::goole_play_billing_helpers::{
+    acknowledge_google_play, fetch_google_play_purchase_details,
+};
+use crate::routes::purchase_token_helpers::verify_subcription_response_for_active_status;
+use crate::schema::purchase_tokens::{self, purchase_token};
+use crate::types::google_play_acknowledgement_state::ACKNOWLEDGEMENT_STATE_PENDING;
+use crate::types::{
+    google_play_subscription_state, ApiResponse, GooglePlaySubscriptionResponse,
+    PurchaseTokenStatus, VerifyData, VerifyRequest,
+};
+
+#[cfg(any(feature = "local", feature = "mock-google-api"))]
+use crate::types::SubscriptionLineItem;
 use crate::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::{response::IntoResponse, Json};
 use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
-use std::env;
 use std::sync::Arc;
+use utoipa;
 
-async fn verify_with_google_play(
+fn verify_purchase_token_validity_for_subscription_active(
     payload: &VerifyRequest,
-    auth: Option<&Arc<GoogleAuth>>,
-) -> Result<serde_json::Value, StatusCode> {
-    // Use mock verification when local or mock-google-api feature is enabled
-    #[cfg(any(feature = "local", feature = "mock-google-api"))]
+    subscription_response: &GooglePlaySubscriptionResponse,
+) -> AppResult<()> {
+    subscription_response
+        .line_items
+        .iter()
+        .find(|item| item.product_id == payload.product_id)
+        .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+    verify_subcription_response_for_active_status(subscription_response)
+}
+
+/// Grant user access to your services after successful purchase acknowledgment
+async fn grant_user_access(
+    admin_ic_agent: Option<&ic_agent::Agent>,
+    user_id: &str,
+) -> AppResult<()> {
+    #[cfg(feature = "local")]
     {
-        let _ = payload; // Suppress unused variable warning
-                         // Return mock successful verification for local development and tests
-        return Ok(serde_json::json!({
-            "acknowledgementState": 0,
-            "purchaseState": 1,
-            "consumptionState": 1,
-            "developerPayload": "",
-            "purchaseTimeMillis": "1234567890123",
-            "purchaseState": 1
-        }));
+        // Mock service call for development/testing
+        println!(
+            "MOCK: Granting access to user {} for product {} with token {}",
+            user_id, product_id, purchase_token
+        );
+        Ok(())
     }
 
-    #[cfg(not(any(feature = "local", feature = "mock-google-api")))]
+    #[cfg(not(feature = "local"))]
     {
-        // Get OAuth access token from app state
-        let auth = auth.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let access_token = auth
-            .get_token_for_default_scopes()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        use crate::routes::utils::grant_yral_pro_plan_access;
 
-        let url = format!(
-            "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/products/{}/tokens/{}",
-            payload.package_name, payload.product_id, payload.purchase_token
-        );
+        let Some(admin_ic_agent) = admin_ic_agent else {
+            return Err(AppError::InternalError(
+                "Admin IC agent not available".to_string(),
+            ));
+        };
 
-        let client = reqwest::Client::new();
-        let res = client.get(&url).bearer_auth(&access_token).send().await;
+        grant_yral_pro_plan_access(admin_ic_agent, user_id).await?;
 
-        match res {
-            Ok(response) => {
-                if response.status().is_success() {
-                    match response.json::<serde_json::Value>().await {
-                        Ok(json) => Ok(json),
-                        Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-                    }
-                } else {
-                    Err(response.status())
-                }
-            }
-            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(())
+    }
+}
+
+async fn process_purchase_token(
+    conn: &mut SqliteConnection,
+    auth: Option<&Arc<GoogleAuth>>,
+    admin_ic_agent: Option<&ic_agent::Agent>,
+    payload: &VerifyRequest,
+) -> AppResult<()> {
+    use crate::schema::purchase_tokens::dsl::*;
+
+    use crate::schema::purchase_tokens::dsl::*;
+
+    let existing_token: Option<PurchaseToken> = purchase_tokens
+        .filter(purchase_token.eq(&payload.purchase_token))
+        .first(conn)
+        .optional()?;
+
+    match existing_token {
+        Some(token) if token.user_id != payload.user_id => {
+            return Err(AppError::TokenAlreadyUsed);
+        }
+        Some(token)
+            if token.status == PurchaseTokenStatus::AccessGranted
+                && token.expiry_at > chrono::Utc::now().naive_utc() =>
+        {
+            Ok(())
+        }
+        _ => {
+            let gooogle_subscription_response = fetch_google_play_purchase_details(
+                &payload.package_name,
+                &payload.purchase_token,
+                auth,
+            )
+            .await?;
+
+            verify_purchase_token_validity_for_subscription_active(
+                payload,
+                &gooogle_subscription_response,
+            )?;
+
+            acknowledge_google_play(
+                &payload.package_name,
+                &payload.purchase_token,
+                &gooogle_subscription_response,
+                auth,
+            )
+            .await?;
+
+            grant_user_access(
+                admin_ic_agent,
+                gooogle_subscription_response
+                    .external_account_identifiers
+                    .ok_or(AppError::ExternalAccountIdentifiersMissing)?
+                    .external_account_id
+                    .ok_or(AppError::ExternalAccountIdentifiersMissing)?
+                    .as_str(),
+            )
+            .await?;
+
+            let expiry = gooogle_subscription_response
+                .line_items
+                .iter()
+                .find(|item| item.product_id == payload.product_id)
+                .map(|item| item.expiry_time.clone())
+                .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+            let expiry_native = expiry
+                .and_then(|time_str| chrono::DateTime::parse_from_rfc3339(&time_str).ok())
+                .map(|dt| dt.naive_utc())
+                .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
+            let new_token = PurchaseToken::new(
+                payload.user_id.clone(),
+                payload.purchase_token.clone(),
+                expiry_native,
+                PurchaseTokenStatus::AccessGranted,
+            );
+
+            diesel::insert_into(purchase_tokens)
+                .values(&new_token)
+                .execute(conn)?;
+
+            Ok(())
         }
     }
 }
 
-async fn acknowledge_google_play(
-    payload: &VerifyRequest,
-    auth: Option<&Arc<GoogleAuth>>,
-) -> Result<(), StatusCode> {
-    // Use mock acknowledgment when local or mock-google-api feature is enabled
-    #[cfg(any(feature = "local", feature = "mock-google-api"))]
-    {
-        let _ = payload; // Suppress unused variable warning
-                         // Mock successful acknowledgment for local development and tests
-        return Ok(());
-    }
-
-    #[cfg(not(any(feature = "local", feature = "mock-google-api")))]
-    {
-        // Get OAuth access token from app state
-        let auth = auth.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-        let access_token = auth
-            .get_token_for_default_scopes()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        let ack_url = format!(
-            "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/products/{}/tokens/{}/:acknowledge",
-            payload.package_name, payload.product_id, payload.purchase_token
-        );
-
-        let client = reqwest::Client::new();
-        let ack_res = client
-            .post(&ack_url)
-            .bearer_auth(&access_token)
-            .send()
-            .await;
-
-        match ack_res {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) => Err(r.status()),
-            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
-        }
-    }
-}
-
+#[utoipa::path(
+    post,
+    path = "/purchase/verify",
+    request_body = VerifyRequest,
+    responses(
+        (status = 200, description = "Subscription verification successful", body = ApiResponse<VerifyData>),
+        (status = 400, description = "Bad request - subscription canceled, expired, or invalid", body = ApiResponse<()>),
+        (status = 202, description = "Subscription is paused or on hold", body = ApiResponse<()>),
+        (status = 500, description = "Internal server error", body = ApiResponse<()>)
+    ),
+    tag = "Subscription Verification"
+)]
 pub async fn verify_purchase(
     State(app_state): State<AppState>,
     Json(payload): Json<VerifyRequest>,
-) -> impl IntoResponse {
-    use crate::schema::purchase_tokens::dsl::*;
+) -> Result<impl IntoResponse, AppError> {
+    let mut conn = app_state
+        .get_db_connection()
+        .map_err(|_| AppError::DatabaseConnection)?;
 
-    // Use test database for tests, production database otherwise
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "billing.db".to_string());
-    let mut conn = match SqliteConnection::establish(&database_url) {
-        Ok(conn) => conn,
-        Err(_) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(VerifyResponse {
-                    acknowledged: false,
-                    status: "Database connection error".to_string(),
-                }),
-            );
-        }
-    };
-
-    // Check if this purchase token already exists
-    let existing_token: Option<PurchaseToken> = purchase_tokens
-        .filter(purchase_token.eq(&payload.purchase_token))
-        .first(&mut conn)
-        .optional()
-        .unwrap_or(None);
-
-    match existing_token {
-        Some(token) => {
-            if token.user_id == payload.user_id {
-                // Same user, same token - return success (idempotent)
-                (
-                    StatusCode::OK,
-                    Json(VerifyResponse {
-                        acknowledged: true,
-                        status: "Token already verified for this user".to_string(),
-                    }),
-                )
-            } else {
-                // Different user trying to use same token
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(VerifyResponse {
-                        acknowledged: false,
-                        status: "Purchase token already used by different user".to_string(),
-                    }),
-                )
-            }
-        }
-        None => {
-            // First verify with Google Play API
-            let google_verification =
-                verify_with_google_play(&payload, app_state.google_auth.as_ref()).await;
-
-            match google_verification {
-                Ok(json) => {
-                    // Purchase is valid with Google, now store in database
-                    let mut new_token = NewPurchaseToken::new(
-                        payload.user_id.clone(),
-                        payload.purchase_token.clone(),
-                    );
-
-                    // Check if already acknowledged
-                    let already_acknowledged =
-                        json.get("acknowledgementState").and_then(|v| v.as_i64()) == Some(1);
-
-                    if !already_acknowledged {
-                        // Need to acknowledge with Google
-                        match acknowledge_google_play(&payload, app_state.google_auth.as_ref())
-                            .await
-                        {
-                            Ok(_) => {
-                                new_token.status = Some(PurchaseTokenStatus::Acknowledged);
-                            }
-                            Err(_) => {
-                                new_token.status = Some(PurchaseTokenStatus::Pending);
-                            }
-                        }
-                    } else {
-                        new_token.status = Some(PurchaseTokenStatus::Acknowledged);
-                    }
-
-                    // Store in database
-                    match diesel::insert_into(purchase_tokens)
-                        .values(&new_token)
-                        .execute(&mut conn)
-                    {
-                        Ok(_) => (
-                            StatusCode::OK,
-                            Json(VerifyResponse {
-                                acknowledged: new_token.status
-                                    == Some(PurchaseTokenStatus::Acknowledged),
-                                status: "Purchase verified and recorded".to_string(),
-                            }),
-                        ),
-                        Err(_) => (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(VerifyResponse {
-                                acknowledged: false,
-                                status: "Failed to record purchase".to_string(),
-                            }),
-                        ),
-                    }
-                }
-                Err(status_code) => {
-                    // Google Play verification failed
-                    (
-                        status_code,
-                        Json(VerifyResponse {
-                            acknowledged: false,
-                            status: format!("Google Play verification failed: {}", status_code),
-                        }),
-                    )
-                }
-            }
-        }
-    }
+    process_purchase_token(
+        &mut conn,
+        app_state.google_auth.as_ref(),
+        app_state.admin_ic_agent.as_ref(),
+        &payload,
+    )
+    .await
 }
