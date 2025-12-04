@@ -11,23 +11,12 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy manifest files first for better layer caching
+# Copy all source files
 COPY Cargo.toml Cargo.lock ./
-
-# Create a dummy source to cache dependencies
-RUN mkdir src && \
-    echo "fn main() {}" > src/main.rs && \
-    echo "pub fn run() {}" > src/lib.rs
-
-# Build dependencies (this layer will be cached)
-RUN cargo build --release && \
-    rm -rf src target/release/yral-billing* target/release/deps/yral_billing*
-
-# Copy the actual source code
 COPY src ./src
 COPY migrations ./migrations
 
-# Build the actual application
+# Build the application
 RUN cargo build --release && \
     strip target/release/yral-billing
 
