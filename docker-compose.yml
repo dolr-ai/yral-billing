@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  yral-billing:
+    # Use pre-built image from GitHub Container Registry
+    # image: ghcr.io/yourusername/yral-billing:latest
+    
+    # Or build locally
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: yral-billing
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Database configuration
+      - DATABASE_URL=/data/billing.db
+      
+      # Server configuration
+      - PORT=3000
+      
+      # Google Cloud credentials (uncomment and set for production)
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/secrets/google-credentials.json
+      
+      # Backend admin secret key (uncomment and set for production)
+      # - BACKEND_ADMIN_SECRET_KEY=${BACKEND_ADMIN_SECRET_KEY}
+      
+      # Rust logging
+      - RUST_LOG=info
+    volumes:
+      # Persistent database storage
+      - ./data:/data
+      
+      # Mount Google credentials if needed (uncomment for production)
+      # - ./secrets/google-credentials.json:/app/secrets/google-credentials.json:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - yral-network
+
+networks:
+  yral-network:
+    driver: bridge
+
+volumes:
+  data:
+    driver: local

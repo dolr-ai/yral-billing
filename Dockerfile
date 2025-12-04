@@ -1,44 +1,65 @@
 # Build stage
-FROM rust:latest as builder
+FROM rust:1.90-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    libsqlite3-dev \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy manifest files
+# Copy all source files
 COPY Cargo.toml Cargo.lock ./
-
-# Copy source code
 COPY src ./src
 COPY migrations ./migrations
+COPY static ./static
 
 # Build the application
-RUN cargo build --release
+RUN cargo build --release && \
+    strip target/release/yral-billing
 
 # Runtime stage
 FROM debian:bookworm-slim
 
-# Install required dependencies
+# Install runtime dependencies
 RUN apt-get update && \
     apt-get install -y \
     libsqlite3-0 \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create app user
 RUN groupadd -r app && useradd -r -g app app
 
-# Create data directory
-RUN mkdir -p /data && chown app:app /data
+# Create necessary directories
+RUN mkdir -p /app /data && \
+    chown -R app:app /app /data
 
 WORKDIR /app
 
 # Copy binary from builder stage
 COPY --from=builder /app/target/release/yral-billing .
 
+# Copy migrations for runtime execution
+COPY --from=builder /app/migrations ./migrations
+
 # Change ownership
 RUN chown -R app:app /app
 
 USER app
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
 EXPOSE 3000
+
+# Set default environment variables (can be overridden)
+ENV PORT=3000
+ENV DATABASE_URL=/data/billing.db
 
 CMD ["./yral-billing"]

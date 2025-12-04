@@ -11,6 +11,7 @@ use yral_billing::AppState;
 fn create_test_app() -> Router {
     let app_state = AppState {
         google_auth: None, // Mock state - no auth needed for tests
+        admin_ic_agent: None,
     };
     Router::new()
         .route("/verify", axum::routing::post(verify_purchase))
@@ -102,8 +103,9 @@ async fn test_verify_purchase_route() {
 
 #[tokio::test]
 async fn test_purchase_token_reuse_prevention() {
-    use yral_billing::model::NewPurchaseToken;
+    use yral_billing::model::PurchaseToken;
     use yral_billing::schema::purchase_tokens;
+    use yral_billing::types::PurchaseTokenStatus;
 
     // Set up test database with automatic cleanup
     let db_guard = TestDbGuard::new();
@@ -116,7 +118,13 @@ async fn test_purchase_token_reuse_prevention() {
     // Manually insert a token for user_1 to simulate a previous successful verification
     use diesel::prelude::*;
     let mut conn = SqliteConnection::establish(db_guard.db_path()).unwrap();
-    let new_token = NewPurchaseToken::new("user_1".to_string(), shared_token.clone());
+    let expiry_at = (chrono::Utc::now() + chrono::Duration::days(30)).naive_utc();
+    let new_token = PurchaseToken::new(
+        "user_1".to_string(),
+        shared_token.clone(),
+        expiry_at,
+        PurchaseTokenStatus::AccessGranted,
+    );
     let _ = diesel::insert_into(purchase_tokens::table)
         .values(&new_token)
         .execute(&mut conn);
@@ -151,8 +159,9 @@ async fn test_purchase_token_reuse_prevention() {
 
 #[tokio::test]
 async fn test_same_user_same_token_allowed() {
-    use yral_billing::model::NewPurchaseToken;
+    use yral_billing::model::PurchaseToken;
     use yral_billing::schema::purchase_tokens;
+    use yral_billing::types::PurchaseTokenStatus;
 
     // Set up test database with automatic cleanup
     let db_guard = TestDbGuard::new();
@@ -166,7 +175,13 @@ async fn test_same_user_same_token_allowed() {
     // Manually insert a token for the user to simulate a previous successful verification
     use diesel::prelude::*;
     let mut conn = SqliteConnection::establish(db_guard.db_path()).unwrap();
-    let new_token = NewPurchaseToken::new(user_id.clone(), token.clone());
+    let expiry_at = (chrono::Utc::now() + chrono::Duration::days(30)).naive_utc();
+    let new_token = PurchaseToken::new(
+        user_id.clone(),
+        token.clone(),
+        expiry_at,
+        PurchaseTokenStatus::AccessGranted,
+    );
     let _ = diesel::insert_into(purchase_tokens::table)
         .values(&new_token)
         .execute(&mut conn);
@@ -196,7 +211,7 @@ async fn test_same_user_same_token_allowed() {
         .unwrap();
     let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
     assert_eq!(
-        body_str.contains("Token already verified for this user"),
+        body_str.contains("Purchase already verified and access granted"),
         true
     );
     // Database cleanup handled automatically by TestDbGuard
