@@ -1,4 +1,4 @@
-name: Build and Push Docker Image
+name: Build, Push and Deploy
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
   pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -63,3 +64,59 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.HETZNER_BARE_METAL_GITHUB_ACTIONS_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.YRAL_BILLING_DEV_SERVER_IP_ADDR }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to server
+        env:
+          SERVER_IP: ${{ secrets.YRAL_BILLING_DEV_SERVER_IP_ADDR }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.CANISTER_ADMIN_PRIVATE_SECRET_KEY }}
+          BACKEND_ADMIN_SECRET_KEY: ${{ secrets.CANISTER_ADMIN_PRIVATE_SECRET_KEY }}
+        run: |
+          # Copy files to server
+          scp -i ~/.ssh/deploy_key Caddyfile root@${SERVER_IP}:~/yral-billing/
+          scp -i ~/.ssh/deploy_key docker-compose.yml root@${SERVER_IP}:~/yral-billing/
+          
+          # Deploy on server
+          ssh -i ~/.ssh/deploy_key root@${SERVER_IP} << 'ENDSSH'
+            cd ~/yral-billing
+            
+            # Export secrets as environment variables
+            export GOOGLE_SERVICE_ACCOUNT_JSON='${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}'
+            export BACKEND_ADMIN_SECRET_KEY='${{ secrets.BACKEND_ADMIN_SECRET_KEY }}'
+            
+            # Pull latest image
+            docker pull ghcr.io/dolr-ai/yral-billing:latest
+            
+            # Check if docker compose is running
+            if docker compose ps | grep -q "Up"; then
+              echo "Services are running, restarting with new configuration..."
+              docker compose down
+              docker compose up -d
+            else
+              echo "Starting services..."
+              docker compose up -d
+            fi
+            
+            # Show status
+            docker compose ps
+          ENDSSH
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
