@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   yral-billing:
     # Use pre-built image from GitHub Container Registry
