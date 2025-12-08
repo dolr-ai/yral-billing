@@ -3,7 +3,10 @@ use std::sync::Arc;
 use crate::{
     auth::GoogleAuth,
     error::AppResult,
-    types::{GooglePlaySubscriptionResponse, VerifyRequest},
+    types::{
+        google_play_acknowledgement_state, GooglePlaySubscriptionResponse, SubscriptionLineItem,
+        VerifyRequest,
+    },
 };
 
 pub async fn acknowledge_google_play(
@@ -15,7 +18,7 @@ pub async fn acknowledge_google_play(
     // Use mock acknowledgment when local or mock-google-api feature is enabled
     #[cfg(any(feature = "local", feature = "mock-google-api"))]
     {
-        let _ = payload; // Suppress unused variable warning
+        let _ = purchase_token; // Suppress unused variable warning
         Ok(())
     }
 
@@ -70,6 +73,8 @@ pub async fn fetch_google_play_purchase_details(
 ) -> AppResult<GooglePlaySubscriptionResponse> {
     #[cfg(any(feature = "local", feature = "mock-google-api"))]
     {
+        use crate::types::{google_play_subscription_state, ExternalAccountIdentifiers};
+
         return Ok(GooglePlaySubscriptionResponse {
             kind: "androidpublisher#subscriptionPurchaseV2".to_string(),
             start_time: Some("2023-01-01T00:00:00.000Z".to_string()),
@@ -79,13 +84,19 @@ pub async fn fetch_google_play_purchase_details(
             latest_order_id: Some("GPA.0000-0000-0000-00000".to_string()),
             acknowledgement_state: "ACKNOWLEDGEMENT_STATE_PENDING".to_string(),
             line_items: vec![SubscriptionLineItem {
-                product_id: payload.product_id.clone(),
+                product_id: "mock-product-id".to_string(),
                 expiry_time: Some("2024-01-01T00:00:00.000Z".to_string()),
                 auto_renewing: Some(true),
                 price_change_state: Some("PRICE_CHANGE_STATE_APPLIED".to_string()),
             }],
             linked_purchase_token: None,
-            purchase_token: payload.purchase_token.clone(),
+            purchase_token: purchase_token.to_string(),
+            external_account_identifiers: Some(ExternalAccountIdentifiers {
+                external_account_id: Some("mock-external-account-id".to_string()),
+                obfuscated_external_account_id: Some("mock-obfuscated-id".to_string()),
+                obfuscated_external_profile_id: Some("mock-obfuscated-profile-id".to_string()),
+            }),
+            subscribe_with_google_info: None,
         });
     }
 

@@ -5,11 +5,8 @@ use crate::routes::goole_play_billing_helpers::{
     acknowledge_google_play, fetch_google_play_purchase_details,
 };
 use crate::routes::purchase_token_helpers::verify_subcription_response_for_active_status;
-use crate::schema::purchase_tokens::{self, purchase_token};
-use crate::types::google_play_acknowledgement_state::ACKNOWLEDGEMENT_STATE_PENDING;
 use crate::types::{
-    google_play_subscription_state, ApiResponse, GooglePlaySubscriptionResponse,
-    PurchaseTokenStatus, VerifyData, VerifyRequest,
+    ApiResponse, EmptyData, GooglePlaySubscriptionResponse, PurchaseTokenStatus, VerifyRequest,
 };
 
 #[cfg(any(feature = "local", feature = "mock-google-api"))]
@@ -17,7 +14,8 @@ use crate::types::SubscriptionLineItem;
 use crate::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::{response::IntoResponse, Json};
+use axum::response::IntoResponse;
+use axum::Json;
 use diesel::prelude::*;
 use std::sync::Arc;
 use utoipa;
@@ -43,10 +41,7 @@ async fn grant_user_access(
     #[cfg(feature = "local")]
     {
         // Mock service call for development/testing
-        println!(
-            "MOCK: Granting access to user {} for product {} with token {}",
-            user_id, product_id, purchase_token
-        );
+        println!("MOCK: Granting access to user {}", user_id);
         Ok(())
     }
 
@@ -72,8 +67,6 @@ async fn process_purchase_token(
     admin_ic_agent: Option<&ic_agent::Agent>,
     payload: &VerifyRequest,
 ) -> AppResult<()> {
-    use crate::schema::purchase_tokens::dsl::*;
-
     use crate::schema::purchase_tokens::dsl::*;
 
     let existing_token: Option<PurchaseToken> = purchase_tokens
@@ -153,13 +146,12 @@ async fn process_purchase_token(
 
 #[utoipa::path(
     post,
-    path = "/purchase/verify",
-    request_body = ApiResponse<()>,
+    path = "/google/verify",
+    request_body = VerifyRequest,
     responses(
-        (status = 200, description = "Subscription verification successful", body = ApiResponse<()>),
-        (status = 400, description = "Bad request - subscription canceled, expired, or invalid", body = ApiResponse<()>),
-        (status = 202, description = "Subscription is paused or on hold", body = ApiResponse<()>),
-        (status = 500, description = "Internal server error", body = ApiResponse<()>)
+        (status = 200, description = "Subscription verification successful", body = ApiResponse<EmptyData>),
+        (status = 400, description = "Bad request - subscription canceled, expired, or invalid", body = ApiResponse<EmptyData>),
+        (status = 500, description = "Internal server error", body = ApiResponse<EmptyData>)
     ),
     tag = "Subscription Verification"
 )]
@@ -177,6 +169,10 @@ pub async fn verify_purchase(
         app_state.admin_ic_agent.as_ref(),
         &payload,
     )
-    .await
-    .into()
+    .await?;
+
+    Ok((
+        StatusCode::OK,
+        Json(ApiResponse::<EmptyData>::success(EmptyData {})),
+    ))
 }

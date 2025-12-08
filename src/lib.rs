@@ -20,8 +20,10 @@ use routes::rtdn::handle_rtdn_webhook;
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use types::{AckData, AckRequest, ApiResponse, PurchaseTokenStatus, VerifyData, VerifyRequest};
+use types::{AckData, AckRequest, ApiResponse, EmptyData, PurchaseTokenStatus, VerifyRequest};
 use utoipa::OpenApi;
+
+use crate::types::VerifyResponse;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -44,7 +46,7 @@ impl AppState {
         health_check
     ),
     components(
-        schemas(ApiResponse<VerifyData>, VerifyRequest, VerifyData, AckRequest, AckData, PurchaseTokenStatus)
+        schemas(ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData, PurchaseTokenStatus)
     ),
     tags(
         (name = "Subscription Verification", description = "Google Play subscription verification endpoints"),
@@ -136,8 +138,8 @@ pub fn run() {
         };
         let app = Router::new()
             .route("/health", get(health_check))
-            .route("/verify", post(verify_purchase))
-            .route("/rtdn-webhook", post(handle_rtdn_webhook))
+            .route("/google/verify", post(verify_purchase))
+            .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
             .route("/api-doc/openapi.json", get(openapi_spec))
             .route("/explore", get(swagger_ui))
             .with_state(app_state);

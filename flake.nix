@@ -13,6 +13,7 @@
           buildInputs = [
             pkgs.rustup
             pkgs.rustfmt
+            pkgs.caddy
             pkgs.clippy
             pkgs.pkg-config
             pkgs.openssl

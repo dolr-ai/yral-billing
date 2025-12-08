@@ -9,17 +9,21 @@ services:
     image: ghcr.io/dolr-ai/yral-billing:latest
     container_name: yral-billing
     restart: unless-stopped
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     environment:
       # Database configuration
-      - DATABASE_URL=/data/billing.db
+      DATABASE_URL: /data/billing.db
       
       # Server configuration
-      - PORT=3000
+      PORT: 3000
       
       # Rust logging
-      - RUST_LOG=info
+      RUST_LOG: info
+      
+      # Secrets - set these via .env file or environment
+      GOOGLE_SERVICE_ACCOUNT_JSON: ${GOOGLE_SERVICE_ACCOUNT_JSON}
+      BACKEND_ADMIN_SECRET_KEY: ${BACKEND_ADMIN_SECRET_KEY}
     volumes:
       # Persistent database storage
       - ./data:/data
@@ -31,15 +35,39 @@ services:
       start_period: 10s
     networks:
       - yral-network
-    secrets:
-      - google_service_account_json
-      - backend_admin_secret_key
 
-secrets:
-  google_service_account_json:
-    external: true
-  backend_admin_secret_key:
-    external: true
+  caddy:
+    image: caddy:2-alpine
+    container_name: yral-billing-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    networks:
+      - yral-network
+    depends_on:
+      yral-billing:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local
+  caddy_logs:
+    driver: local
 
 networks:
   yral-network:

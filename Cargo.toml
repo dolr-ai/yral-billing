@@ -22,7 +22,7 @@ bb8 = "0.8.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 google-cloud-auth = "0.13"
-utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa = { version = "5.4", features = ["axum_extras"] }
 yral-canisters-client = { git = "https://github.com/dolr-ai/yral-common", version = "0.1.0", features = ["user-info-service"] }
 thiserror = "2.0"
 ic-agent = "0.41.0"

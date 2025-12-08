@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 /// Common API response structure for all endpoints
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct ApiResponse<T> {
+pub struct ApiResponse<T: ToSchema> {
     /// Indicates whether the request was successful
     pub success: bool,
     /// Optional success message
@@ -19,7 +19,11 @@ pub struct ApiResponse<T> {
     pub data: Option<T>,
 }
 
-impl<T> ApiResponse<T> {
+/// Empty data type for API responses without payload
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct EmptyData;
+
+impl<T: utoipa::ToSchema> ApiResponse<T> {
     /// Create a successful response with data
     pub fn success(data: T) -> Self {
         Self {
@@ -134,17 +138,9 @@ pub struct VerifyRequest {
     pub purchase_token: String,
 }
 
+/// Empty response for verification endpoints
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct VerifyData {
-    /// Whether the subscription has been acknowledged
-    pub acknowledged: bool,
-    /// Whether service access has been granted
-    pub access_granted: bool,
-    /// Current status of the subscription token
-    pub status: PurchaseTokenStatus,
-}
-
-pub type VerifyResponse = ApiResponse<VerifyData>;
+pub struct VerifyResponse {}
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct AckRequest {
