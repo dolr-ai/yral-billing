@@ -8,7 +8,7 @@ pub mod types;
 use auth::GoogleAuth;
 use axum::{
     http::StatusCode,
-    response::{Html, IntoResponse, Json},
+    response::{Html, IntoResponse, Json, Redirect},
     routing::{get, post},
     Router,
 };
@@ -84,6 +84,10 @@ async fn swagger_ui() -> impl IntoResponse {
     Html(include_str!("../static/swagger.html"))
 }
 
+async fn root_redirect() -> Redirect {
+    Redirect::permanent("/explore")
+}
+
 pub fn run() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         // Run database migrations on startup
@@ -137,6 +141,7 @@ pub fn run() {
             admin_ic_agent,
         };
         let app = Router::new()
+            .route("/", get(root_redirect))
             .route("/health", get(health_check))
             .route("/google/verify", post(verify_purchase))
             .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
