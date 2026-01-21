@@ -50,6 +50,8 @@ pub async fn acknowledge_google_play(
         let ack_res = client
             .post(&ack_url)
             .bearer_auth(&access_token)
+            .header("Content-Type", "application/json")
+            .body("{}")
             .send()
             .await
             .map_err(AppError::from)?;
