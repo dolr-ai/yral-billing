@@ -268,8 +268,6 @@ pub struct GooglePlaySubscriptionResponse {
     pub line_items: Vec<SubscriptionLineItem>,
     #[serde(rename = "linkedPurchaseToken")]
     pub linked_purchase_token: Option<String>,
-    #[serde(rename = "purchaseToken")]
-    pub purchase_token: String,
     #[serde(rename = "externalAccountIdentifiers")]
     pub external_account_identifiers: Option<ExternalAccountIdentifiers>,
     #[serde(rename = "subscribeWithGoogleInfo")]

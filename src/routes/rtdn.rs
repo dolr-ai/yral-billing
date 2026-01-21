@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::auth::{self, GoogleAuth};
+use crate::auth::GoogleAuth;
 use crate::error::AppError;
 use crate::model::PurchaseToken;
 use crate::routes::goole_play_billing_helpers::{
@@ -9,10 +9,9 @@ use crate::routes::goole_play_billing_helpers::{
 use crate::routes::purchase_token_helpers::verify_subcription_response_for_active_status;
 use crate::routes::utils::{grant_yral_pro_plan_access, revoke_yral_pro_plan_access};
 use crate::types::{
-    one_time_product_notification_type, subscription_notification_type, DeveloperNotification,
-    GooglePlaySubscriptionResponse, PubSubMessage, PurchaseTokenStatus,
+    subscription_notification_type, DeveloperNotification, GooglePlaySubscriptionResponse,
+    PubSubMessage, PurchaseTokenStatus,
 };
-use axum::handler;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use base64::prelude::*;
 use diesel::prelude::*;
@@ -101,13 +100,14 @@ pub async fn handle_new_subscription_purchase(
     admin_ic_agent: &ic_agent::Agent,
     package_name: &str,
     user_id_str: &str,
+    purchase_token_param: &str,
     subscription_response: &GooglePlaySubscriptionResponse,
 ) -> Result<(), AppError> {
     use crate::schema::purchase_tokens::dsl::*;
 
     // Check if this purchase token already exists
     let existing_token: Option<PurchaseToken> = purchase_tokens
-        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .filter(purchase_token.eq(purchase_token_param))
         .first(conn)
         .optional()?;
 
@@ -139,7 +139,7 @@ pub async fn handle_new_subscription_purchase(
             verify_subcription_response_for_active_status(subscription_response)?;
             acknowledge_google_play(
                 package_name,
-                &subscription_response.purchase_token,
+                purchase_token_param,
                 subscription_response,
                 auth,
             )
@@ -154,7 +154,7 @@ pub async fn handle_new_subscription_purchase(
 
             let new_token = PurchaseToken::new(
                 user_id_str.to_string(),
-                subscription_response.purchase_token.clone(),
+                purchase_token_param.to_string(),
                 expiry_native,
                 PurchaseTokenStatus::AccessGranted,
             );
@@ -172,13 +172,14 @@ async fn handle_subscription_renewal(
     conn: &mut SqliteConnection,
     admin_ic_agent: &ic_agent::Agent,
     user_id_param: &str,
+    purchase_token_param: &str,
     subscription_response: &GooglePlaySubscriptionResponse,
 ) -> Result<(), AppError> {
     use crate::schema::purchase_tokens::dsl::*;
 
     // Check if this purchase token already exists
     let existing_token: Option<PurchaseToken> = purchase_tokens
-        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .filter(purchase_token.eq(purchase_token_param))
         .first(conn)
         .optional()?;
 
@@ -216,13 +217,14 @@ async fn handle_revoking_user_access(
     conn: &mut SqliteConnection,
     admin_ic_agent: &ic_agent::Agent,
     user_id_str: &str,
-    subscription_response: &GooglePlaySubscriptionResponse,
+    purchase_token_param: &str,
+    _subscription_response: &GooglePlaySubscriptionResponse,
 ) -> Result<(), AppError> {
     use crate::schema::purchase_tokens::dsl::*;
 
     // Check if this purchase token already exists
     let existing_token: Option<PurchaseToken> = purchase_tokens
-        .filter(purchase_token.eq(&subscription_response.purchase_token))
+        .filter(purchase_token.eq(purchase_token_param))
         .first(conn)
         .optional()?;
     match existing_token {
@@ -287,6 +289,7 @@ async fn handle_subscription_notification(
                     .ok_or(AppError::AdminIcAgentMissing)?,
                 package_name,
                 &user_id,
+                purchase_token,
                 &google_play_subscription_response,
             )
             .await?;
@@ -301,6 +304,7 @@ async fn handle_subscription_notification(
                     .as_ref()
                     .ok_or(AppError::AdminIcAgentMissing)?,
                 &user_id,
+                purchase_token,
                 &google_play_subscription_response,
             )
             .await?;
@@ -321,6 +325,7 @@ async fn handle_subscription_notification(
                     .as_ref()
                     .ok_or(AppError::AdminIcAgentMissing)?,
                 &user_id,
+                purchase_token,
                 &google_play_subscription_response,
             )
             .await?;
@@ -356,12 +361,13 @@ async fn handle_subscription_notification(
             handle_revoking_user_access(
                 &mut app_state
                     .get_db_connection()
-                    .map_err(|e| AppError::DatabaseConnection)?,
+                    .map_err(|_| AppError::DatabaseConnection)?,
                 app_state
                     .admin_ic_agent
                     .as_ref()
                     .ok_or(AppError::AdminIcAgentMissing)?,
                 &user_id,
+                purchase_token,
                 &google_play_subscription_response,
             )
             .await?;
