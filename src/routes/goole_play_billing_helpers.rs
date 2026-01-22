@@ -42,7 +42,7 @@ pub async fn acknowledge_google_play(
             .map_err(|e| AppError::AccessTokenFailed(e.to_string()))?;
 
         let ack_url = format!(
-            "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/subscriptionsv2/tokens/{}:acknowledge",
+            "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/subscriptions/tokens/{}:acknowledge",
             package_name, purchase_token
         );
 
