@@ -135,7 +135,7 @@ async fn process_purchase_token(
                 PurchaseTokenStatus::AccessGranted,
             );
 
-            diesel::insert_into(purchase_tokens)
+            diesel::replace_into(purchase_tokens)
                 .values(&new_token)
                 .execute(conn)?;
 
