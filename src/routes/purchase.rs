@@ -110,7 +110,7 @@ async fn process_purchase_token(
                 gooogle_subscription_response
                     .external_account_identifiers
                     .ok_or(AppError::ExternalAccountIdentifiersMissing)?
-                    .external_account_id
+                    .obfuscated_external_account_id
                     .ok_or(AppError::ExternalAccountIdentifiersMissing)?
                     .as_str(),
             )
