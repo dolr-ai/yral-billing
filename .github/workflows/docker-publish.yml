@@ -85,7 +85,7 @@ jobs:
         env:
           SERVER_IP: ${{ secrets.YRAL_BILLING_DEV_SERVER_IP_ADDR }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          BACKEND_ADMIN_SECRET_KEY: ${{ secrets.CANISTER_ADMIN_PRIVATE_SECRET_KEY }}
+          BACKEND_ADMIN_SECRET_KEY: ${{ secrets.DOLR_AI_SNS_PROPOSAL_SUBMISSION_IDENTITY_PRIVATE_KEY }}
         run: |
           # Copy files to server
           scp -i ~/.ssh/deploy_key Caddyfile root@${SERVER_IP}:~/yral-billing/
