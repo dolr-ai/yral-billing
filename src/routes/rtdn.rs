@@ -271,7 +271,7 @@ async fn handle_subscription_notification(
         .external_account_identifiers
         .clone()
         .ok_or(AppError::ExternalAccountIdentifiersMissing)?
-        .external_account_id
+        .obfuscated_external_account_id
         .ok_or(AppError::ExternalAccountIdentifiersMissing)?;
 
     println!("Processing subscription notification for user: {}", user_id);
