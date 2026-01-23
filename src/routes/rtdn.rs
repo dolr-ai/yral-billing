@@ -393,8 +393,5 @@ async fn handle_test_notification(
     );
     println!("This is a test notification from Google Play Console");
 
-    // Test notifications don't require any special processing
-    // They're just used to verify that your endpoint is working correctly
-
     Ok(())
 }

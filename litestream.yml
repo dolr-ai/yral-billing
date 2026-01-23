@@ -1,0 +1,17 @@
+dbs:
+  - path: /data/billing.db
+    replicas:
+      - type: s3
+        bucket: ${LITESTREAM_S3_BUCKET}
+        path: billing-db
+        endpoint: ${LITESTREAM_S3_ENDPOINT}
+        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
+        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
+        # Force path-style addressing (required for some S3-compatible services)
+        force-path-style: true
+        # Sync interval (how often to push changes)
+        sync-interval: 10s
+        # Retention period (how long to keep old snapshots)
+        retention: 168h  # 7 days
+        # Snapshot interval (full backup frequency)
+        snapshot-interval: 24h
