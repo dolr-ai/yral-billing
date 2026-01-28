@@ -1,0 +1,1 @@
+pub static YRAL_PRO_CREDIT_ALLOTMENT: u32 = 30;

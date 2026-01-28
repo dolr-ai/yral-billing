@@ -2,11 +2,13 @@ use std::sync::Arc;
 
 use ic_agent::export::Principal;
 use yral_canisters_client::{
-    ic::{self, USER_INFO_SERVICE_ID},
+    ic::USER_INFO_SERVICE_ID,
     user_info_service::{SubscriptionPlan, UserInfoService, YralProSubscription},
 };
 
-use crate::{auth::GoogleAuth, error::AppError, types::VerifyRequest};
+use crate::{
+    auth::GoogleAuth, consts::YRAL_PRO_CREDIT_ALLOTMENT, error::AppError, types::VerifyRequest,
+};
 
 pub async fn get_valid_google_play_purchase_token_detail(
     payload: &VerifyRequest,
@@ -114,7 +116,8 @@ pub async fn grant_yral_pro_plan_access(
         .change_subscription_plan(
             user_princpal,
             SubscriptionPlan::Pro(YralProSubscription {
-                free_video_credits_left: 30, //default value
+                total_video_credits_alloted: YRAL_PRO_CREDIT_ALLOTMENT,
+                free_video_credits_left: YRAL_PRO_CREDIT_ALLOTMENT, //default value
             }),
         )
         .await
