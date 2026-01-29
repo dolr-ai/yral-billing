@@ -5,22 +5,23 @@ pub mod routes;
 pub mod schema;
 pub mod types;
 
-use auth::GoogleAuth;
+use auth::{GoogleAuth, jwt_auth_middleware};
 use axum::{
     http::StatusCode,
+    middleware,
     response::{Html, IntoResponse, Json, Redirect},
     routing::{get, post},
     Router,
 };
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use ic_agent::identity::Secp256k1Identity;
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
+use routes::credits::{deduct_credits, increment_credits};
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use types::{AckData, AckRequest, ApiResponse, EmptyData, PurchaseTokenStatus, VerifyRequest};
+use types::{AckData, AckRequest, ApiResponse, CreditRequest, EmptyData, PurchaseTokenStatus, VerifyRequest};
 use utoipa::OpenApi;
 
 use crate::types::VerifyResponse;
@@ -43,19 +44,23 @@ impl AppState {
 #[openapi(
     paths(
         routes::purchase::verify_purchase,
+        routes::credits::deduct_credits,
+        routes::credits::increment_credits,
         health_check
     ),
     components(
-        schemas(ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData, PurchaseTokenStatus)
+        schemas(ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData, PurchaseTokenStatus, CreditRequest)
     ),
+    modifiers(&SecurityAddon),
     tags(
         (name = "Subscription Verification", description = "Google Play subscription verification endpoints"),
+        (name = "Credits", description = "User credit management endpoints"),
         (name = "Health", description = "Health check endpoints")
     ),
     info(
         title = "YRAL Billing API",
         version = "1.0.0",
-        description = "API for handling Google Play subscription billing operations",
+        description = "API for handling Google Play subscription billing operations and user credit management",
         contact(
             name = "YRAL Team",
             url = "https://yral.com"
@@ -63,6 +68,23 @@ impl AppState {
     )
 )]
 struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer_auth",
+                utoipa::openapi::security::SecurityScheme::Http(
+                    utoipa::openapi::security::Http::new(
+                        utoipa::openapi::security::HttpAuthScheme::Bearer,
+                    ),
+                ),
+            )
+        }
+    }
+}
 
 #[utoipa::path(
     get,
@@ -140,6 +162,12 @@ pub fn run() {
             google_auth,
             admin_ic_agent,
         };
+        // Create protected routes with JWT middleware
+        let protected_routes = Router::new()
+            .route("/credits/deduct", post(deduct_credits))
+            .route("/credits/increment", post(increment_credits))
+            .layer(middleware::from_fn(jwt_auth_middleware));
+
         let app = Router::new()
             .route("/", get(root_redirect))
             .route("/health", get(health_check))
@@ -147,6 +175,7 @@ pub fn run() {
             .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
             .route("/api-doc/openapi.json", get(openapi_spec))
             .route("/explore", get(swagger_ui))
+            .merge(protected_routes)
             .with_state(app_state);
 
         let port: u16 = env::var("PORT")
@@ -157,12 +186,10 @@ pub fn run() {
         let addr = SocketAddr::from(([0, 0, 0, 0], port));
         println!("Listening on {}", addr);
 
-        axum::serve(
-            tokio::net::TcpListener::bind(addr).await.unwrap(),
-            app.into_make_service(),
-        )
-        .await
-        .unwrap();
+        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+        axum::serve(listener, app.into_make_service())
+            .await
+            .unwrap();
     });
 }
 

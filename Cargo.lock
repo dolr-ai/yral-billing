@@ -4125,6 +4125,7 @@ dependencies = [
  "diesel_migrations",
  "google-cloud-auth",
  "ic-agent",
+ "jsonwebtoken",
  "reqwest 0.12.24",
  "serde",
  "serde_json",

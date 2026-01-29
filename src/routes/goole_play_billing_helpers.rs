@@ -92,7 +92,6 @@ pub async fn fetch_google_play_purchase_details(
                 price_change_state: Some("PRICE_CHANGE_STATE_APPLIED".to_string()),
             }],
             linked_purchase_token: None,
-            purchase_token: purchase_token.to_string(),
             external_account_identifiers: Some(ExternalAccountIdentifiers {
                 external_account_id: Some("mock-external-account-id".to_string()),
                 obfuscated_external_account_id: Some("mock-obfuscated-id".to_string()),
