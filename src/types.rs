@@ -328,3 +328,12 @@ pub mod google_play_acknowledgement_state {
     pub const ACKNOWLEDGEMENT_STATE_PENDING: &str = "ACKNOWLEDGEMENT_STATE_PENDING";
     pub const ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED: &str = "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED";
 }
+
+// Credit management types
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct CreditRequest {
+    /// Principal ID of the user
+    pub user_principal: String,
+    /// Amount to deduct or increment
+    pub amount: u32,
+}
