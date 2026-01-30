@@ -89,6 +89,8 @@ jobs:
           LITESTREAM_ACCESS_KEY_ID: ${{ secrets.LITESTREAM_BACKUP_OBJECT_STORAGE_ACCESS_KEY }}
           LITESTREAM_SECRET_ACCESS_KEY: ${{ secrets.LITESTREAM_BACKUP_OBJECT_STORAGE_SECRET_KEY }}
           LITESTREAM_S3_BUCKET: ${{ secrets.BUCKET_NAME_LITE_STREAM_BACKUP }}
+          APP_ENV: production
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
         run: |
           # Copy files to server
@@ -106,6 +108,8 @@ jobs:
             export LITESTREAM_ACCESS_KEY_ID='${LITESTREAM_ACCESS_KEY_ID}'
             export LITESTREAM_SECRET_ACCESS_KEY='${LITESTREAM_SECRET_ACCESS_KEY}'
             export LITESTREAM_S3_BUCKET='${LITESTREAM_S3_BUCKET}'
+            export APP_ENV='${APP_ENV}'
+            export SENTRY_DSN='${SENTRY_DSN}'
             
             # Pull latest image
             docker pull ghcr.io/dolr-ai/yral-billing:latest
