@@ -6,7 +6,7 @@ pub mod routes;
 pub mod schema;
 pub mod types;
 
-use auth::{GoogleAuth, jwt_auth_middleware};
+use auth::{jwt_auth_middleware, GoogleAuth};
 use axum::{
     http::StatusCode,
     middleware,
@@ -16,13 +16,15 @@ use axum::{
 };
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
+use routes::credits::{deduct_credits, increment_credits};
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
-use routes::credits::{deduct_credits, increment_credits};
 use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use types::{AckData, AckRequest, ApiResponse, CreditRequest, EmptyData, PurchaseTokenStatus, VerifyRequest};
+use types::{
+    AckData, AckRequest, ApiResponse, CreditRequest, EmptyData, PurchaseTokenStatus, VerifyRequest,
+};
 use utoipa::OpenApi;
 
 use crate::types::VerifyResponse;
@@ -113,9 +115,28 @@ async fn root_redirect() -> Redirect {
 
 pub fn run() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
+        // Initialize Sentry
+        let _guard = sentry::init((
+            "https://d63e426c9935ab2cdaedfd53060f23e7@apm.yral.com/17",
+            sentry::ClientOptions {
+                release: sentry::release_name!(),
+                environment: Some(
+                    env::var("APP_ENV")
+                        .unwrap_or_else(|_| "development".to_string())
+                        .into(),
+                ),
+                traces_sample_rate: 1.0,
+                ..Default::default()
+            },
+        ));
+
         // Run database migrations on startup
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "billing.db".to_string());
         if let Err(e) = run_migrations(&database_url) {
+            sentry::capture_message(
+                &format!("Failed to run migrations: {}", e),
+                sentry::Level::Error,
+            );
             eprintln!("Failed to run migrations: {}", e);
             std::process::exit(1);
         }
@@ -130,6 +151,10 @@ pub fn run() {
                     Some(Arc::new(auth))
                 }
                 Err(e) => {
+                    sentry::capture_message(
+                        &format!("Failed to initialize Google Auth: {}", e),
+                        sentry::Level::Error,
+                    );
                     eprintln!("Failed to initialize Google Auth: {}", e);
                     std::process::exit(1);
                 }

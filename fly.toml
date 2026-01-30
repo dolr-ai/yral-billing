@@ -15,6 +15,7 @@ primary_region = "iad"
 [env]
   DATABASE_URL = "/tmp/billing.db"
   RUST_LOG = "info"
+  APP_ENV = "production"
 
 [[services]]
   protocol = "tcp"
