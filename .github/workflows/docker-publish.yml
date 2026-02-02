@@ -90,7 +90,6 @@ jobs:
           LITESTREAM_SECRET_ACCESS_KEY: ${{ secrets.LITESTREAM_BACKUP_OBJECT_STORAGE_SECRET_KEY }}
           LITESTREAM_S3_BUCKET: ${{ secrets.BUCKET_NAME_LITE_STREAM_BACKUP }}
           APP_ENV: production
-          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
 
         run: |
           # Copy files to server
