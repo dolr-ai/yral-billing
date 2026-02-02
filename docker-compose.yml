@@ -16,6 +16,9 @@ services:
       # Server configuration
       PORT: 3000
       
+      # Environment
+      APP_ENV: ${APP_ENV}
+      
       # Rust logging
       RUST_LOG: info
       
