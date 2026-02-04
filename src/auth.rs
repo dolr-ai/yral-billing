@@ -79,6 +79,7 @@ pub async fn jwt_auth_middleware(req: Request, next: Next) -> Result<Response, S
     // Decode and validate JWT without checking expiry using Ed25519 public key
     let mut validation = Validation::new(Algorithm::EdDSA);
     validation.validate_exp = false; // Don't check expiry as per requirements
+    validation.validate_aud = false;
 
     let _claims = decode::<Claims>(
         token,
