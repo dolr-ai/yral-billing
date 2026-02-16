@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::auth::GoogleAuth;
+use crate::auth::{GoogleAuth, GooglePublicKey};
 use crate::error::AppError;
 use crate::model::PurchaseToken;
 use crate::routes::goole_play_billing_helpers::{
@@ -12,16 +12,38 @@ use crate::types::{
     subscription_notification_type, DeveloperNotification, GooglePlaySubscriptionResponse,
     PubSubMessage, PurchaseTokenStatus,
 };
+use axum::http::HeaderMap;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use base64::prelude::*;
 use diesel::prelude::*;
+use reqwest::header::AUTHORIZATION;
 use serde_json;
 
+pub async fn verify_rtdn_webhook(
+    header_value: Option<&axum::http::HeaderValue>,
+    google_public_key: Arc<GooglePublicKey>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let auth_header = header_value.ok_or("Missing Authorization header")?;
+    let auth_token = auth_header.to_str()?.trim_start_matches("Bearer ").trim();
+
+    google_public_key.validate_token(auth_token).await?;
+
+    Ok(())
+}
+
 pub async fn handle_rtdn_webhook(
+    header_map: HeaderMap,
     axum::extract::State(app_state): axum::extract::State<crate::AppState>,
     Json(payload): Json<PubSubMessage>,
 ) -> impl IntoResponse {
     println!("Received RTDN webhook: {:?}", payload);
+
+    let auth_header = header_map.get(AUTHORIZATION).take();
+
+    if let Err(e) = verify_rtdn_webhook(auth_header, app_state.google_public_key.clone()).await {
+        eprintln!("Authentication failed: {}", e);
+        return (StatusCode::UNAUTHORIZED, "Unauthorized");
+    }
 
     // Decode the base64 message data
     let decoded_data = match BASE64_STANDARD.decode(&payload.message.data) {
@@ -275,6 +297,8 @@ async fn handle_subscription_notification(
         .ok_or(AppError::ExternalAccountIdentifiersMissing)?;
 
     println!("Processing subscription notification for user: {}", user_id);
+
+    //TODO: remve purchase related to linked purchase token.
 
     match notification_type {
         subscription_notification_type::SUBSCRIPTION_PURCHASED => {
