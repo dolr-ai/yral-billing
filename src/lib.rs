@@ -27,12 +27,13 @@ use types::{
 };
 use utoipa::OpenApi;
 
-use crate::types::VerifyResponse;
+use crate::{auth::GooglePublicKey, types::VerifyResponse};
 
 #[derive(Clone)]
 pub struct AppState {
     pub google_auth: Option<Arc<GoogleAuth>>,
     pub admin_ic_agent: Option<ic_agent::Agent>,
+    pub google_public_key: Arc<GooglePublicKey>,
 }
 
 impl AppState {
@@ -184,9 +185,14 @@ pub fn run() {
             Some(admin_ic_agent)
         };
 
+        let google_public_key = GooglePublicKey::new()
+            .await
+            .expect("Failed to fetch google public key");
+
         let app_state = AppState {
             google_auth,
             admin_ic_agent,
+            google_public_key: Arc::new(google_public_key),
         };
         // Create protected routes with JWT middleware
         let protected_routes = Router::new()
