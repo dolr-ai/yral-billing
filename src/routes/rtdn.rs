@@ -298,7 +298,14 @@ async fn handle_subscription_notification(
 
     println!("Processing subscription notification for user: {}", user_id);
 
-    //TODO: remve purchase related to linked purchase token.
+    handle_linked_purchase_token(
+        &mut app_state
+            .get_db_connection()
+            .map_err(|_| AppError::DatabaseConnection)?,
+        google_play_subscription_response
+            .linked_purchase_token
+            .clone(),
+    )?;
 
     match notification_type {
         subscription_notification_type::SUBSCRIPTION_PURCHASED => {
@@ -381,7 +388,6 @@ async fn handle_subscription_notification(
         subscription_notification_type::SUBSCRIPTION_REVOKED
         | subscription_notification_type::SUBSCRIPTION_EXPIRED
         | subscription_notification_type::SUBSCRIPTION_ON_HOLD => {
-            //TODO: revoke access
             handle_revoking_user_access(
                 &mut app_state
                     .get_db_connection()
@@ -403,6 +409,22 @@ async fn handle_subscription_notification(
                 notification_type, user_id
             );
         }
+    }
+
+    Ok(())
+}
+
+fn handle_linked_purchase_token(
+    database_conn: &mut SqliteConnection,
+    linked_purchase_token: Option<String>,
+) -> Result<(), AppError> {
+    use crate::schema::purchase_tokens::dsl::*;
+
+    if let Some(token) = linked_purchase_token {
+        diesel::update(purchase_tokens.filter(purchase_token.eq(&token)))
+            .set(status.eq(PurchaseTokenStatus::Expired))
+            .execute(database_conn)
+            .map_err(|_| AppError::DatabaseConnection)?;
     }
 
     Ok(())
