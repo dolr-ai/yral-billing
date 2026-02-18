@@ -8,11 +8,8 @@ use yral_billing::types::VerifyRequest;
 use yral_billing::AppState;
 
 // Helper function to create a test router with mock state
-fn create_test_app() -> Router {
-    let app_state = AppState {
-        google_auth: None, // Mock state - no auth needed for tests
-        admin_ic_agent: None,
-    };
+async fn create_test_app() -> Router {
+    let app_state = AppState::new().await;
     Router::new()
         .route("/verify", axum::routing::post(verify_purchase))
         .with_state(app_state)
@@ -79,7 +76,7 @@ async fn test_verify_purchase_route() {
     // Set up test database with automatic cleanup
     let _db_guard = TestDbGuard::new();
 
-    let app = create_test_app();
+    let app = create_test_app().await;
 
     let payload = VerifyRequest {
         user_id: format!("test_user_{}", uuid::Uuid::new_v4()),
@@ -110,7 +107,7 @@ async fn test_purchase_token_reuse_prevention() {
     // Set up test database with automatic cleanup
     let db_guard = TestDbGuard::new();
 
-    let app = create_test_app();
+    let app = create_test_app().await;
 
     // Use unique token per test to avoid conflicts
     let shared_token = format!("shared_token_{}", uuid::Uuid::new_v4());
@@ -166,7 +163,7 @@ async fn test_same_user_same_token_allowed() {
     // Set up test database with automatic cleanup
     let db_guard = TestDbGuard::new();
 
-    let app = create_test_app();
+    let app = create_test_app().await;
 
     // Use unique token per test to avoid conflicts
     let token = format!("user_token_{}", uuid::Uuid::new_v4());

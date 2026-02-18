@@ -16,6 +16,7 @@ use axum::http::HeaderMap;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use base64::prelude::*;
 use diesel::prelude::*;
+use diesel::r2d2::{ConnectionManager, PooledConnection};
 use reqwest::header::AUTHORIZATION;
 use serde_json;
 
@@ -117,7 +118,7 @@ async fn process_notification(
 }
 
 pub async fn handle_new_subscription_purchase(
-    conn: &mut SqliteConnection,
+    conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     auth: Option<&Arc<GoogleAuth>>,
     admin_ic_agent: &ic_agent::Agent,
     package_name: &str,
@@ -191,7 +192,7 @@ pub async fn handle_new_subscription_purchase(
 }
 
 async fn handle_subscription_renewal(
-    conn: &mut SqliteConnection,
+    conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     admin_ic_agent: &ic_agent::Agent,
     user_id_param: &str,
     purchase_token_param: &str,
@@ -236,7 +237,7 @@ async fn handle_subscription_renewal(
 }
 
 async fn handle_revoking_user_access(
-    conn: &mut SqliteConnection,
+    conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     admin_ic_agent: &ic_agent::Agent,
     user_id_str: &str,
     purchase_token_param: &str,
@@ -299,9 +300,7 @@ async fn handle_subscription_notification(
     println!("Processing subscription notification for user: {}", user_id);
 
     handle_linked_purchase_token(
-        &mut app_state
-            .get_db_connection()
-            .map_err(|_| AppError::DatabaseConnection)?,
+        &mut app_state.get_db_connection()?,
         google_play_subscription_response
             .linked_purchase_token
             .clone(),
@@ -415,7 +414,7 @@ async fn handle_subscription_notification(
 }
 
 fn handle_linked_purchase_token(
-    database_conn: &mut SqliteConnection,
+    database_conn: &mut PooledConnection<ConnectionManager<SqliteConnection>>,
     linked_purchase_token: Option<String>,
 ) -> Result<(), AppError> {
     use crate::schema::purchase_tokens::dsl::*;

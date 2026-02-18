@@ -15,10 +15,9 @@ serde = "1.0.228"
 serde_json = "1.0.145"
 tokio = { version = "1.48.0", features = ["full"] }
 base64 = "0.22"
-diesel = { version = "2.2.0", features = ["sqlite", "chrono", "uuid"] }
+diesel = { version = "2.2.0", features = ["sqlite", "chrono", "uuid", "r2d2"] }
 diesel_migrations = { version = "2.2.0", features = ["sqlite"] }
 diesel-async = { version = "0.5.0", features = ["sqlite", "bb8"] }
-bb8 = "0.8.0"
 chrono = { version = "0.4.38", features = ["serde"] }
 uuid = { version = "1.11.0", features = ["v4", "serde"] }
 google-cloud-auth = "0.13"

@@ -2,7 +2,7 @@
 
 diesel::table! {
     purchase_tokens (id) {
-        id -> Text,
+        id -> Nullable<Text>,
         user_id -> Text,
         purchase_token -> Text,
         status -> Text,
