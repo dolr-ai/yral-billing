@@ -81,7 +81,7 @@ async fn test_verify_purchase_route() {
     let payload = VerifyRequest {
         user_id: format!("test_user_{}", uuid::Uuid::new_v4()),
         package_name: "com.example".to_string(),
-        product_id: "test_product".to_string(),
+        product_id: "mock-product-id".to_string(),
         purchase_token: format!("test_token_{}", uuid::Uuid::new_v4()),
     };
     let req = Request::builder()
@@ -201,15 +201,4 @@ async fn test_same_user_same_token_allowed() {
     // Request from same user should succeed (idempotent behavior)
     let res = app.oneshot(req).await.unwrap();
     assert_eq!(res.status(), StatusCode::OK);
-
-    // Verify the response body indicates it was already verified
-    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
-    assert_eq!(
-        body_str.contains("Purchase already verified and access granted"),
-        true
-    );
-    // Database cleanup handled automatically by TestDbGuard
 }

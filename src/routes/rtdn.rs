@@ -15,8 +15,8 @@ use crate::types::{
 use axum::http::HeaderMap;
 use axum::{http::StatusCode, response::IntoResponse, Json};
 use base64::prelude::*;
-use diesel::prelude::*;
 use diesel::r2d2::{ConnectionManager, PooledConnection};
+use diesel::{prelude::*, RunQueryDsl};
 use reqwest::header::AUTHORIZATION;
 use serde_json;
 
@@ -203,6 +203,7 @@ async fn handle_subscription_renewal(
     // Check if this purchase token already exists
     let existing_token: Option<PurchaseToken> = purchase_tokens
         .filter(purchase_token.eq(purchase_token_param))
+        .select(PurchaseToken::as_select())
         .first(conn)
         .optional()?;
 
@@ -250,6 +251,7 @@ async fn handle_revoking_user_access(
         .filter(purchase_token.eq(purchase_token_param))
         .first(conn)
         .optional()?;
+
     match existing_token {
         Some(token) => {
             // Update existing token with new expiry and status

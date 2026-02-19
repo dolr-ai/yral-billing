@@ -28,6 +28,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Cargo test
+        run: cargo test --features=local
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
