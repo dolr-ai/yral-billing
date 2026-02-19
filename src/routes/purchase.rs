@@ -9,8 +9,6 @@ use crate::types::{
     ApiResponse, EmptyData, GooglePlaySubscriptionResponse, PurchaseTokenStatus, VerifyRequest,
 };
 
-#[cfg(any(feature = "local", feature = "mock-google-api"))]
-use crate::types::SubscriptionLineItem;
 use crate::AppState;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -33,32 +31,33 @@ fn verify_purchase_token_validity_for_subscription_active(
     verify_subcription_response_for_active_status(subscription_response)
 }
 
+#[cfg(feature = "local")]
+async fn grant_user_access(
+    _admin_ic_agent: Option<&ic_agent::Agent>,
+    user_id: &str,
+) -> AppResult<()> {
+    // Mock implementation for local development
+    println!("MOCK: Granting access to user {}", user_id);
+    Ok(())
+}
 /// Grant user access to your services after successful purchase acknowledgment
+///
+#[cfg(not(feature = "local"))]
 async fn grant_user_access(
     admin_ic_agent: Option<&ic_agent::Agent>,
     user_id: &str,
 ) -> AppResult<()> {
-    #[cfg(feature = "local")]
-    {
-        // Mock service call for development/testing
-        println!("MOCK: Granting access to user {}", user_id);
-        Ok(())
-    }
+    use crate::routes::utils::grant_yral_pro_plan_access;
 
-    #[cfg(not(feature = "local"))]
-    {
-        use crate::routes::utils::grant_yral_pro_plan_access;
+    let Some(admin_ic_agent) = admin_ic_agent else {
+        return Err(AppError::InternalError(
+            "Admin IC agent not available".to_string(),
+        ));
+    };
 
-        let Some(admin_ic_agent) = admin_ic_agent else {
-            return Err(AppError::InternalError(
-                "Admin IC agent not available".to_string(),
-            ));
-        };
+    grant_yral_pro_plan_access(admin_ic_agent, user_id).await?;
 
-        grant_yral_pro_plan_access(admin_ic_agent, user_id).await?;
-
-        Ok(())
-    }
+    Ok(())
 }
 
 async fn process_purchase_token(

@@ -59,7 +59,7 @@ impl AppState {
         }
 
         // Initialize Google Auth (only for production, not for local/mock features)
-        let google_auth = if cfg!(any(feature = "local", feature = "mock-google-api")) {
+        let google_auth = if cfg!(feature = "local") {
             None
         } else {
             match GoogleAuth::from_env() {
@@ -78,7 +78,7 @@ impl AppState {
             }
         };
 
-        let admin_ic_agent = if cfg!(any(feature = "local", feature = "mock-google-api")) {
+        let admin_ic_agent = if cfg!(feature = "local") {
             None
         } else {
             let backend_admin_secret_key = env::var("BACKEND_ADMIN_SECRET_KEY")

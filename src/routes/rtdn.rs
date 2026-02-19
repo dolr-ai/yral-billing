@@ -203,7 +203,6 @@ async fn handle_subscription_renewal(
     // Check if this purchase token already exists
     let existing_token: Option<PurchaseToken> = purchase_tokens
         .filter(purchase_token.eq(purchase_token_param))
-        .select(PurchaseToken::as_select())
         .first(conn)
         .optional()?;
 
