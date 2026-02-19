@@ -1,0 +1,6 @@
+[build]
+# Default args for cargo test to run serially
+rustflags = ["-Dwarnings"]
+
+[env]
+RUST_TEST_THREADS = "1"
