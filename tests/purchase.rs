@@ -23,7 +23,7 @@ struct TestDbGuard {
 
 impl TestDbGuard {
     fn new() -> Self {
-        let test_db = format!("test_{}.db", uuid::Uuid::new_v4());
+        let test_db = format!("./test_{}.db", uuid::Uuid::new_v4());
 
         // Save original DATABASE_URL if it exists
         let original_database_url = std::env::var("DATABASE_URL").ok();
