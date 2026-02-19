@@ -4,14 +4,13 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use chrono::{Date, DateTime};
-use diesel::dsl::max;
+use chrono::DateTime;
 use google_cloud_auth::credentials::CredentialsFile;
 use google_cloud_auth::project::{create_token_source_from_credentials, Config};
 use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
-use reqwest::header::{CACHE_CONTROL, EXPIRES};
+use reqwest::header::EXPIRES;
 use serde::{Deserialize, Serialize};
-use std::{env, f32::consts::E};
+use std::env;
 use tokio::sync::RwLock;
 
 /// Ed25519 public key for JWT verification

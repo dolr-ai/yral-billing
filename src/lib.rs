@@ -14,8 +14,11 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use diesel::prelude::*;
-use diesel::sqlite::SqliteConnection;
+
+use diesel::{
+    prelude::*,
+    r2d2::{ConnectionManager, Pool, PooledConnection},
+};
 use routes::credits::{deduct_credits, increment_credits};
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
@@ -27,20 +30,96 @@ use types::{
 };
 use utoipa::OpenApi;
 
-use crate::{auth::GooglePublicKey, types::VerifyResponse};
+use crate::{auth::GooglePublicKey, error::AppError, types::VerifyResponse};
 
 #[derive(Clone)]
 pub struct AppState {
     pub google_auth: Option<Arc<GoogleAuth>>,
     pub admin_ic_agent: Option<ic_agent::Agent>,
     pub google_public_key: Arc<GooglePublicKey>,
+    pub db_connection: Pool<ConnectionManager<SqliteConnection>>,
 }
-
+//
 impl AppState {
-    /// Get a database connection
-    pub fn get_db_connection(&self) -> Result<SqliteConnection, diesel::ConnectionError> {
+    pub async fn new() -> Self {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "billing.db".to_string());
-        SqliteConnection::establish(&database_url)
+        let manager = ConnectionManager::<SqliteConnection>::new(database_url);
+        let pool = Pool::builder()
+            .build(manager)
+            .expect("Failed to create database connection pool");
+
+        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "billing.db".to_string());
+        if let Err(e) = run_migrations(&database_url) {
+            sentry::capture_message(
+                &format!("Failed to run migrations: {}", e),
+                sentry::Level::Error,
+            );
+            eprintln!("Failed to run migrations: {}", e);
+            std::process::exit(1);
+        }
+
+        // Initialize Google Auth (only for production, not for local/mock features)
+        let google_auth = if cfg!(feature = "local") {
+            None
+        } else {
+            match GoogleAuth::from_env() {
+                Ok(auth) => {
+                    println!("Google Auth initialized successfully");
+                    Some(Arc::new(auth))
+                }
+                Err(e) => {
+                    sentry::capture_message(
+                        &format!("Failed to initialize Google Auth: {}", e),
+                        sentry::Level::Error,
+                    );
+                    eprintln!("Failed to initialize Google Auth: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        };
+
+        let admin_ic_agent = if cfg!(feature = "local") {
+            None
+        } else {
+            let backend_admin_secret_key = env::var("BACKEND_ADMIN_SECRET_KEY")
+                .expect("expect backend admin canister key to be present");
+
+            let identity = match ic_agent::identity::Secp256k1Identity::from_pem(
+                stringreader::StringReader::new(backend_admin_secret_key.as_str()),
+            ) {
+                Ok(identity) => identity,
+                Err(err) => {
+                    panic!("Unable to create identity, error: {err:?}");
+                }
+            };
+
+            let admin_ic_agent = ic_agent::Agent::builder()
+                .with_url("https://ic0.app")
+                .with_identity(identity)
+                .build()
+                .expect("Failed to create IC agent for admin canister");
+            Some(admin_ic_agent)
+        };
+
+        let google_public_key = GooglePublicKey::new()
+            .await
+            .expect("Failed to fetch google public key");
+
+        AppState {
+            google_auth,
+            admin_ic_agent,
+            google_public_key: Arc::new(google_public_key),
+            db_connection: pool,
+        }
+    }
+
+    /// Get a database connection
+    pub fn get_db_connection(
+        &self,
+    ) -> Result<PooledConnection<ConnectionManager<SqliteConnection>>, AppError> {
+        self.db_connection
+            .get()
+            .map_err(|_e| AppError::DatabaseConnection)
     }
 }
 
@@ -132,68 +211,7 @@ pub fn run() {
         ));
 
         // Run database migrations on startup
-        let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "billing.db".to_string());
-        if let Err(e) = run_migrations(&database_url) {
-            sentry::capture_message(
-                &format!("Failed to run migrations: {}", e),
-                sentry::Level::Error,
-            );
-            eprintln!("Failed to run migrations: {}", e);
-            std::process::exit(1);
-        }
-
-        // Initialize Google Auth (only for production, not for local/mock features)
-        let google_auth = if cfg!(any(feature = "local", feature = "mock-google-api")) {
-            None
-        } else {
-            match GoogleAuth::from_env() {
-                Ok(auth) => {
-                    println!("Google Auth initialized successfully");
-                    Some(Arc::new(auth))
-                }
-                Err(e) => {
-                    sentry::capture_message(
-                        &format!("Failed to initialize Google Auth: {}", e),
-                        sentry::Level::Error,
-                    );
-                    eprintln!("Failed to initialize Google Auth: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        };
-
-        let admin_ic_agent = if cfg!(any(feature = "local", feature = "mock-google-api")) {
-            None
-        } else {
-            let backend_admin_secret_key = env::var("BACKEND_ADMIN_SECRET_KEY")
-                .expect("expect backend admin canister key to be present");
-
-            let identity = match ic_agent::identity::Secp256k1Identity::from_pem(
-                stringreader::StringReader::new(backend_admin_secret_key.as_str()),
-            ) {
-                Ok(identity) => identity,
-                Err(err) => {
-                    panic!("Unable to create identity, error: {err:?}");
-                }
-            };
-
-            let admin_ic_agent = ic_agent::Agent::builder()
-                .with_url("https://ic0.app")
-                .with_identity(identity)
-                .build()
-                .expect("Failed to create IC agent for admin canister");
-            Some(admin_ic_agent)
-        };
-
-        let google_public_key = GooglePublicKey::new()
-            .await
-            .expect("Failed to fetch google public key");
-
-        let app_state = AppState {
-            google_auth,
-            admin_ic_agent,
-            google_public_key: Arc::new(google_public_key),
-        };
+        let app_state = AppState::new().await;
         // Create protected routes with JWT middleware
         let protected_routes = Router::new()
             .route("/credits/deduct", post(deduct_credits))

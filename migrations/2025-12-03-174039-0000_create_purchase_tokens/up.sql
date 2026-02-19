@@ -1,5 +1,5 @@
 CREATE TABLE purchase_tokens (
-    id VARCHAR(36) PRIMARY KEY,
+    id VARCHAR(36) PRIMARY KEY NOT NULL,
     user_id VARCHAR(255) NOT NULL,
     purchase_token TEXT NOT NULL UNIQUE,
     status VARCHAR(50) NOT NULL,
