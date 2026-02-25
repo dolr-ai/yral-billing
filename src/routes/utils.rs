@@ -106,9 +106,14 @@ pub async fn revoke_yral_pro_plan_access(
 }
 
 pub async fn grant_yral_pro_plan_access(
+    product_id: &str,
     admin_ic_agent: &ic_agent::Agent,
     user_id: &str,
 ) -> Result<(), AppError> {
+    if product_id != "yral_pro_plan" {
+        return Ok(());
+    }
+
     let user_info_client = UserInfoService(USER_INFO_SERVICE_ID, admin_ic_agent);
     let user_princpal = Principal::from_text(user_id.to_owned())
         .map_err(|e| AppError::InternalError(e.to_string()))?;

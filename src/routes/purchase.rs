@@ -33,6 +33,7 @@ fn verify_purchase_token_validity_for_subscription_active(
 
 #[cfg(feature = "local")]
 async fn grant_user_access(
+    _product_id: &str,
     _admin_ic_agent: Option<&ic_agent::Agent>,
     user_id: &str,
 ) -> AppResult<()> {
@@ -44,6 +45,7 @@ async fn grant_user_access(
 ///
 #[cfg(not(feature = "local"))]
 async fn grant_user_access(
+    product_id: &str,
     admin_ic_agent: Option<&ic_agent::Agent>,
     user_id: &str,
 ) -> AppResult<()> {
@@ -55,7 +57,7 @@ async fn grant_user_access(
         ));
     };
 
-    grant_yral_pro_plan_access(admin_ic_agent, user_id).await?;
+    grant_yral_pro_plan_access(product_id, admin_ic_agent, user_id).await?;
 
     Ok(())
 }
@@ -105,6 +107,7 @@ async fn process_purchase_token(
             .await?;
 
             grant_user_access(
+                &payload.product_id,
                 admin_ic_agent,
                 gooogle_subscription_response
                     .external_account_identifiers

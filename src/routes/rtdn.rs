@@ -141,6 +141,8 @@ pub async fn handle_new_subscription_purchase(
         .map(|item| item.expiry_time.clone())
         .ok_or(AppError::SubscriptionInvalidLineItems)?;
 
+    let product_id = &subscription_response.line_items[0].product_id;
+
     match existing_token {
         Some(token) => {
             // Update existing token with new expiry and status
@@ -167,7 +169,7 @@ pub async fn handle_new_subscription_purchase(
                 auth,
             )
             .await?;
-            grant_yral_pro_plan_access(admin_ic_agent, user_id_str).await?;
+            grant_yral_pro_plan_access(product_id, admin_ic_agent, user_id_str).await?;
 
             // Insert new purchase token into database
             let expiry_native = expiry
@@ -213,15 +215,22 @@ async fn handle_subscription_renewal(
         .map(|item| item.expiry_time.clone())
         .ok_or(AppError::SubscriptionInvalidLineItems)?;
 
+    let product_id = &subscription_response
+        .line_items
+        .get(0)
+        .map(|item| &item.product_id)
+        .ok_or(AppError::SubscriptionInvalidLineItems)?;
+
     match existing_token {
         Some(token) => {
             // Update existing token with new expiry and status
+
             let expiry_native = expiry
                 .and_then(|time_str| chrono::DateTime::parse_from_rfc3339(&time_str).ok())
                 .map(|dt| dt.naive_utc())
                 .ok_or(AppError::SubscriptionInvalidLineItems)?;
 
-            grant_yral_pro_plan_access(admin_ic_agent, user_id_param).await?;
+            grant_yral_pro_plan_access(product_id, admin_ic_agent, user_id_param).await?;
 
             diesel::update(purchase_tokens.filter(id.eq(&token.id)))
                 .set((
