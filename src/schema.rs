@@ -10,3 +10,16 @@ diesel::table! {
         expiry_at -> Timestamp,
     }
 }
+
+diesel::table! {
+    bot_chat_access (id) {
+        id -> Text,
+        purchase_token -> Text,
+        user_id -> Text,
+        bot_id -> Text,
+        status -> Text,
+        granted_at -> Timestamp,
+        updated_at -> Timestamp,
+        expires_at -> Timestamp,
+    }
+}

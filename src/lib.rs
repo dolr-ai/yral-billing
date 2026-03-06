@@ -19,6 +19,7 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
+use routes::chat_access::{check_chat_access, grant_chat_access};
 use routes::credits::{deduct_credits, increment_credits};
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
@@ -223,6 +224,8 @@ pub fn run() {
             .route("/health", get(health_check))
             .route("/google/verify", post(verify_purchase))
             .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
+            .route("/google/chat-access/grant", post(grant_chat_access))
+            .route("/google/chat-access/check", get(check_chat_access))
             .route("/api-doc/openapi.json", get(openapi_spec))
             .route("/explore", get(swagger_ui))
             .merge(protected_routes)

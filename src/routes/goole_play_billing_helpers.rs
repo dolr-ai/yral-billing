@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use crate::{auth::GoogleAuth, error::AppResult, types::GooglePlaySubscriptionResponse};
+use crate::{
+    auth::GoogleAuth,
+    error::AppResult,
+    types::{GooglePlayProductPurchaseV2, GooglePlaySubscriptionResponse},
+};
 
 #[cfg(feature = "local")]
 pub async fn acknowledge_google_play(
@@ -134,6 +138,121 @@ pub async fn fetch_google_play_purchase_details(
         Err(AppError::GooglePlayApi(format!(
             "API returned error status: {}",
             res.status()
+        )))
+    }
+}
+
+#[cfg(feature = "local")]
+pub async fn fetch_google_play_product_details(
+    _package_name: &str,
+    _purchase_token: &str,
+    _auth: Option<&Arc<GoogleAuth>>,
+) -> AppResult<GooglePlayProductPurchaseV2> {
+    use crate::types::google_play_product_purchase_state;
+
+    Ok(GooglePlayProductPurchaseV2 {
+        kind: Some("androidpublisher#productPurchaseV2".to_string()),
+        purchase_time_millis: Some("1700000000000".to_string()),
+        purchase_state: google_play_product_purchase_state::PURCHASE_STATE_PURCHASED,
+        consumption_state: Some(0),
+        acknowledgement_state: Some(0),
+        product_id: Some("mock-product-id".to_string()),
+        quantity: Some(1),
+        obfuscated_external_account_id: Some("mock-user-id".to_string()),
+        obfuscated_external_profile_id: None,
+        region_code: Some("US".to_string()),
+    })
+}
+
+#[cfg(not(feature = "local"))]
+pub async fn fetch_google_play_product_details(
+    package_name: &str,
+    purchase_token: &str,
+    auth: Option<&Arc<GoogleAuth>>,
+) -> AppResult<GooglePlayProductPurchaseV2> {
+    use crate::error::AppError;
+
+    let auth = auth.ok_or(AppError::AuthServiceUnavailable)?;
+    let access_token = auth
+        .get_token_for_default_scopes()
+        .await
+        .map_err(|e| AppError::AccessTokenFailed(e.to_string()))?;
+
+    let url = format!(
+        "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/productsv2/tokens/{}",
+        package_name, purchase_token
+    );
+
+    let client = reqwest::Client::new();
+    let res = client
+        .get(&url)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(AppError::from)?;
+
+    if res.status().is_success() {
+        let product_response = res
+            .json::<GooglePlayProductPurchaseV2>()
+            .await
+            .map_err(|e| AppError::GooglePlayResponseParse(e.to_string()))?;
+
+        Ok(product_response)
+    } else {
+        Err(AppError::GooglePlayApi(format!(
+            "API returned error status: {}",
+            res.status()
+        )))
+    }
+}
+
+#[cfg(feature = "local")]
+pub async fn consume_google_play_product(
+    _package_name: &str,
+    _product_id: &str,
+    _purchase_token: &str,
+    _auth: Option<&Arc<GoogleAuth>>,
+) -> AppResult<()> {
+    Ok(())
+}
+
+#[cfg(not(feature = "local"))]
+pub async fn consume_google_play_product(
+    package_name: &str,
+    product_id: &str,
+    purchase_token: &str,
+    auth: Option<&Arc<GoogleAuth>>,
+) -> AppResult<()> {
+    use crate::error::AppError;
+
+    let auth = auth.ok_or(AppError::AuthServiceUnavailable)?;
+    let access_token = auth
+        .get_token_for_default_scopes()
+        .await
+        .map_err(|e| AppError::AccessTokenFailed(e.to_string()))?;
+
+    let url = format!(
+        "https://androidpublisher.googleapis.com/androidpublisher/v3/applications/{}/purchases/products/{}/tokens/{}:consume",
+        package_name, product_id, purchase_token
+    );
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(&url)
+        .bearer_auth(&access_token)
+        .header("Content-Type", "application/json")
+        .body("{}")
+        .send()
+        .await
+        .map_err(AppError::from)?;
+
+    if res.status().is_success() {
+        Ok(())
+    } else {
+        let error_text = res.text().await.unwrap_or_default();
+        Err(AppError::GooglePlayApi(format!(
+            "Consume failed: {}",
+            error_text
         )))
     }
 }
