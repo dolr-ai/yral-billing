@@ -27,7 +27,8 @@ use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use types::{
-    AckData, AckRequest, ApiResponse, CreditRequest, EmptyData, PurchaseTokenStatus, VerifyRequest,
+    AckData, AckRequest, ApiResponse, BotChatAccessStatus, ChatAccessResponse, CreditRequest,
+    EmptyData, GrantChatAccessRequest, PurchaseTokenStatus, VerifyRequest,
 };
 use utoipa::OpenApi;
 
@@ -130,15 +131,22 @@ impl AppState {
         routes::purchase::verify_purchase,
         routes::credits::deduct_credits,
         routes::credits::increment_credits,
+        routes::chat_access::grant_chat_access,
+        routes::chat_access::check_chat_access,
         health_check
     ),
     components(
-        schemas(ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData, PurchaseTokenStatus, CreditRequest)
+        schemas(
+            ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData,
+            PurchaseTokenStatus, CreditRequest,
+            GrantChatAccessRequest, ChatAccessResponse, BotChatAccessStatus
+        )
     ),
     modifiers(&SecurityAddon),
     tags(
         (name = "Subscription Verification", description = "Google Play subscription verification endpoints"),
         (name = "Credits", description = "User credit management endpoints"),
+        (name = "Chat Access", description = "Bot chat access grant and check endpoints"),
         (name = "Health", description = "Health check endpoints")
     ),
     info(
