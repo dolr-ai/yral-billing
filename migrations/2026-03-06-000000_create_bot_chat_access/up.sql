@@ -3,7 +3,7 @@ CREATE TABLE bot_chat_access (
     purchase_token TEXT NOT NULL UNIQUE,
     user_id VARCHAR(255) NOT NULL,
     bot_id VARCHAR(255) NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'active',
+    status VARCHAR(50) NOT NULL DEFAULT 'consume_pending',
     granted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP NOT NULL

@@ -232,12 +232,15 @@ async fn test_check_chat_access_expired() {
     // Insert a grant that already expired
     let mut conn = SqliteConnection::establish(db_guard.db_path()).unwrap();
     let expired_at = (chrono::Utc::now() - chrono::Duration::hours(1)).naive_utc();
-    let grant = BotChatAccess::new(
+    let mut grant = BotChatAccess::new(
         token.clone(),
         "mock-user-id".to_string(),
         "bot_abc".to_string(),
         expired_at,
     );
+
+    grant.status = BotChatAccessStatus::Active; // Simulate an active grant that has passed its expiry
+
     diesel::insert_into(bot_chat_access::table)
         .values(&grant)
         .execute(&mut conn)
