@@ -9,8 +9,8 @@ use crate::routes::goole_play_billing_helpers::{
 use crate::routes::purchase_token_helpers::verify_subcription_response_for_active_status;
 use crate::routes::utils::{grant_yral_pro_plan_access, revoke_yral_pro_plan_access};
 use crate::types::{
-    subscription_notification_type, DeveloperNotification, GooglePlaySubscriptionResponse,
-    PubSubMessage, PurchaseTokenStatus,
+    one_time_product_notification_type, subscription_notification_type, DeveloperNotification,
+    GooglePlaySubscriptionResponse, OneTimeProductNotification, PubSubMessage, PurchaseTokenStatus,
 };
 use axum::http::HeaderMap;
 use axum::{http::StatusCode, response::IntoResponse, Json};
@@ -108,6 +108,9 @@ async fn process_notification(
     }
 
     // Handle one-time product notifications
+    if let Some(otp_notification) = &notification.one_time_product_notification {
+        handle_one_time_product_notification(otp_notification, app_state).await?;
+    }
 
     // Handle test notifications
     if let Some(test_notification) = &notification.test_notification {
@@ -434,6 +437,56 @@ fn handle_linked_purchase_token(
             .set(status.eq(PurchaseTokenStatus::Expired))
             .execute(database_conn)
             .map_err(|_| AppError::DatabaseConnection)?;
+    }
+
+    Ok(())
+}
+
+async fn handle_one_time_product_notification(
+    notification: &OneTimeProductNotification,
+    app_state: &crate::AppState,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let notification_type = notification.notification_type;
+    let purchase_token_value = &notification.purchase_token;
+
+    println!(
+        "One-time product notification - Type: {}, SKU: {}, Token: {}",
+        notification_type, notification.sku, purchase_token_value
+    );
+
+    match notification_type {
+        one_time_product_notification_type::ONE_TIME_PRODUCT_PURCHASED => {
+            // Grant is initiated by the client calling /google/chat-access/grant.
+            // Nothing to do here as we need bot_id from the client to create the grant.
+            println!("One-time product purchased, waiting for client to call grant endpoint");
+        }
+        one_time_product_notification_type::ONE_TIME_PRODUCT_CANCELED => {
+            use crate::schema::bot_chat_access::dsl;
+            use crate::types::BotChatAccessStatus;
+
+            let mut conn = app_state.get_db_connection()?;
+            let now = chrono::Utc::now().naive_utc();
+
+            diesel::update(
+                dsl::bot_chat_access.filter(dsl::purchase_token.eq(purchase_token_value)),
+            )
+            .set((
+                dsl::status.eq(BotChatAccessStatus::Canceled),
+                dsl::updated_at.eq(now),
+            ))
+            .execute(&mut conn)?;
+
+            println!(
+                "Canceled bot chat access for purchase token: {}",
+                purchase_token_value
+            );
+        }
+        _ => {
+            println!(
+                "Unknown one-time product notification type: {}",
+                notification_type
+            );
+        }
     }
 
     Ok(())

@@ -329,6 +329,107 @@ pub mod google_play_acknowledgement_state {
     pub const ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED: &str = "ACKNOWLEDGEMENT_STATE_ACKNOWLEDGED";
 }
 
+// Bot chat access status
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
+)]
+#[diesel(sql_type = Text)]
+pub enum BotChatAccessStatus {
+    /// Row inserted, Google Play consume not yet confirmed
+    ConsumePending,
+    /// Consume confirmed, access is valid
+    Active,
+    /// Token was canceled (e.g. refund)
+    Canceled,
+    /// Access window has passed
+    Expired,
+}
+
+impl ToSql<Text, Sqlite> for BotChatAccessStatus {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        match *self {
+            BotChatAccessStatus::ConsumePending => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"consume_pending", out)
+            }
+            BotChatAccessStatus::Active => <&str as ToSql<Text, Sqlite>>::to_sql(&"active", out),
+            BotChatAccessStatus::Canceled => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"canceled", out)
+            }
+            BotChatAccessStatus::Expired => <&str as ToSql<Text, Sqlite>>::to_sql(&"expired", out),
+        }
+    }
+}
+
+impl FromSql<Text, Sqlite> for BotChatAccessStatus {
+    fn from_sql(
+        bytes: <Sqlite as diesel::backend::Backend>::RawValue<'_>,
+    ) -> deserialize::Result<Self> {
+        let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
+        match s.as_str() {
+            "consume_pending" => Ok(BotChatAccessStatus::ConsumePending),
+            "active" => Ok(BotChatAccessStatus::Active),
+            "canceled" => Ok(BotChatAccessStatus::Canceled),
+            "expired" => Ok(BotChatAccessStatus::Expired),
+            _ => Err("Invalid bot chat access status".into()),
+        }
+    }
+}
+
+// Google Play consumption states for one-time products
+pub mod google_play_consumption_state {
+    pub const NOT_CONSUMED: i32 = 0;
+    pub const CONSUMED: i32 = 1;
+}
+
+// Google Play one-time product purchase states
+pub mod google_play_product_purchase_state {
+    pub const PURCHASE_STATE_UNSPECIFIED: i32 = 0;
+    pub const PURCHASE_STATE_PURCHASED: i32 = 1;
+    pub const PURCHASE_STATE_PENDING: i32 = 2;
+}
+
+// Google Play one-time product purchase v2 API response
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GooglePlayProductPurchaseV2 {
+    pub kind: Option<String>,
+    #[serde(rename = "purchaseTimeMillis")]
+    pub purchase_time_millis: Option<String>,
+    #[serde(rename = "purchaseState")]
+    pub purchase_state: i32,
+    #[serde(rename = "consumptionState")]
+    pub consumption_state: Option<i32>,
+    #[serde(rename = "acknowledgementState")]
+    pub acknowledgement_state: Option<i32>,
+    #[serde(rename = "productId")]
+    pub product_id: Option<String>,
+    #[serde(rename = "quantity")]
+    pub quantity: Option<i32>,
+    #[serde(rename = "obfuscatedExternalAccountId")]
+    pub obfuscated_external_account_id: Option<String>,
+    #[serde(rename = "obfuscatedExternalProfileId")]
+    pub obfuscated_external_profile_id: Option<String>,
+    #[serde(rename = "regionCode")]
+    pub region_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GrantChatAccessRequest {
+    /// Android package name
+    pub package_name: String,
+    /// One-time product ID from Google Play
+    pub product_id: String,
+    /// Purchase token from Google Play
+    pub purchase_token: String,
+    /// Bot/influencer ID to grant access to
+    pub bot_id: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ChatAccessResponse {
+    pub has_access: bool,
+    pub expires_at: Option<String>,
+}
+
 // Credit management types
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreditRequest {

@@ -33,16 +33,6 @@ impl TestDbGuard {
             std::env::set_var("DATABASE_URL", &test_db);
         }
 
-        // Run migration on test database
-        let _ = std::process::Command::new("diesel")
-            .args(&[
-                "migration",
-                "run",
-                "--database-url",
-                &format!("sqlite://{}", test_db),
-            ])
-            .output();
-
         Self {
             db_path: test_db,
             original_database_url,

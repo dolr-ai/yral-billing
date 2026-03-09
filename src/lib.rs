@@ -19,6 +19,7 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
+use routes::chat_access::{check_chat_access, grant_chat_access};
 use routes::credits::{deduct_credits, increment_credits};
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
@@ -26,7 +27,8 @@ use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use types::{
-    AckData, AckRequest, ApiResponse, CreditRequest, EmptyData, PurchaseTokenStatus, VerifyRequest,
+    AckData, AckRequest, ApiResponse, BotChatAccessStatus, ChatAccessResponse, CreditRequest,
+    EmptyData, GrantChatAccessRequest, PurchaseTokenStatus, VerifyRequest,
 };
 use utoipa::OpenApi;
 
@@ -129,15 +131,22 @@ impl AppState {
         routes::purchase::verify_purchase,
         routes::credits::deduct_credits,
         routes::credits::increment_credits,
+        routes::chat_access::grant_chat_access,
+        routes::chat_access::check_chat_access,
         health_check
     ),
     components(
-        schemas(ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData, PurchaseTokenStatus, CreditRequest)
+        schemas(
+            ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData,
+            PurchaseTokenStatus, CreditRequest,
+            GrantChatAccessRequest, ChatAccessResponse, BotChatAccessStatus
+        )
     ),
     modifiers(&SecurityAddon),
     tags(
         (name = "Subscription Verification", description = "Google Play subscription verification endpoints"),
         (name = "Credits", description = "User credit management endpoints"),
+        (name = "Chat Access", description = "Bot chat access grant and check endpoints"),
         (name = "Health", description = "Health check endpoints")
     ),
     info(
@@ -223,6 +232,8 @@ pub fn run() {
             .route("/health", get(health_check))
             .route("/google/verify", post(verify_purchase))
             .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
+            .route("/google/chat-access/grant", post(grant_chat_access))
+            .route("/google/chat-access/check", get(check_chat_access))
             .route("/api-doc/openapi.json", get(openapi_spec))
             .route("/explore", get(swagger_ui))
             .merge(protected_routes)
