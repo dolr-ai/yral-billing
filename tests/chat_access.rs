@@ -63,7 +63,7 @@ impl Drop for TestDbGuard {
 fn grant_request(purchase_token: &str, bot_id: &str) -> GrantChatAccessRequest {
     GrantChatAccessRequest {
         package_name: "com.example".to_string(),
-        product_id: "daily_bot_access".to_string(),
+        product_id: "mock-product-id".to_string(),
         purchase_token: purchase_token.to_string(),
         bot_id: bot_id.to_string(),
     }
@@ -232,7 +232,12 @@ async fn test_check_chat_access_expired() {
     // Insert a grant that already expired
     let mut conn = SqliteConnection::establish(db_guard.db_path()).unwrap();
     let expired_at = (chrono::Utc::now() - chrono::Duration::hours(1)).naive_utc();
-    let grant = BotChatAccess::new(token.clone(), "mock-user-id".to_string(), "bot_abc".to_string(), expired_at);
+    let grant = BotChatAccess::new(
+        token.clone(),
+        "mock-user-id".to_string(),
+        "bot_abc".to_string(),
+        expired_at,
+    );
     diesel::insert_into(bot_chat_access::table)
         .values(&grant)
         .execute(&mut conn)
