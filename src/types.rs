@@ -335,14 +335,22 @@ pub mod google_play_acknowledgement_state {
 )]
 #[diesel(sql_type = Text)]
 pub enum BotChatAccessStatus {
+    /// Row inserted, Google Play consume not yet confirmed
+    ConsumePending,
+    /// Consume confirmed, access is valid
     Active,
+    /// Token was canceled (e.g. refund)
     Canceled,
+    /// Access window has passed
     Expired,
 }
 
 impl ToSql<Text, Sqlite> for BotChatAccessStatus {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
         match *self {
+            BotChatAccessStatus::ConsumePending => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"consume_pending", out)
+            }
             BotChatAccessStatus::Active => <&str as ToSql<Text, Sqlite>>::to_sql(&"active", out),
             BotChatAccessStatus::Canceled => {
                 <&str as ToSql<Text, Sqlite>>::to_sql(&"canceled", out)
@@ -358,12 +366,19 @@ impl FromSql<Text, Sqlite> for BotChatAccessStatus {
     ) -> deserialize::Result<Self> {
         let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
         match s.as_str() {
+            "consume_pending" => Ok(BotChatAccessStatus::ConsumePending),
             "active" => Ok(BotChatAccessStatus::Active),
             "canceled" => Ok(BotChatAccessStatus::Canceled),
             "expired" => Ok(BotChatAccessStatus::Expired),
             _ => Err("Invalid bot chat access status".into()),
         }
     }
+}
+
+// Google Play consumption states for one-time products
+pub mod google_play_consumption_state {
+    pub const NOT_CONSUMED: i32 = 0;
+    pub const CONSUMED: i32 = 1;
 }
 
 // Google Play one-time product purchase states

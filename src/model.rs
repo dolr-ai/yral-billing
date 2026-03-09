@@ -29,7 +29,7 @@ impl BotChatAccess {
             purchase_token,
             user_id,
             bot_id,
-            status: BotChatAccessStatus::Active,
+            status: BotChatAccessStatus::ConsumePending,
             granted_at: now,
             updated_at: now,
             expires_at,
