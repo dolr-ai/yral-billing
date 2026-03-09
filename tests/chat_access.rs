@@ -2,11 +2,14 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::Router;
 use diesel::prelude::*;
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use tower::ServiceExt; // for `oneshot`
 use uuid;
 use yral_billing::routes::chat_access::{check_chat_access, grant_chat_access};
 use yral_billing::types::{BotChatAccessStatus, GrantChatAccessRequest};
 use yral_billing::AppState;
+
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
 async fn create_test_app() -> Router {
     let app_state = AppState::new().await;
@@ -34,6 +37,8 @@ impl TestDbGuard {
         unsafe {
             std::env::set_var("DATABASE_URL", &test_db);
         }
+        let mut conn = SqliteConnection::establish(&test_db).unwrap();
+        conn.run_pending_migrations(MIGRATIONS).unwrap();
         Self {
             db_path: test_db,
             original_database_url,
