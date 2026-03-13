@@ -148,19 +148,34 @@ pub async fn fetch_google_play_product_details(
     _purchase_token: &str,
     _auth: Option<&Arc<GoogleAuth>>,
 ) -> AppResult<GooglePlayProductPurchaseV2> {
-    use crate::types::google_play_product_purchase_state;
+    use crate::types::{
+        google_play_consumption_state, google_play_product_purchase_state, ProductLineItem,
+        ProductOfferDetails, PurchaseStateContext,
+    };
 
     Ok(GooglePlayProductPurchaseV2 {
         kind: Some("androidpublisher#productPurchaseV2".to_string()),
-        purchase_time_millis: Some("1700000000000".to_string()),
-        purchase_state: google_play_product_purchase_state::PURCHASE_STATE_PURCHASED,
-        consumption_state: Some(0),
-        acknowledgement_state: Some(0),
-        product_id: Some("mock-product-id".to_string()),
-        quantity: Some(1),
+        product_line_item: Some(vec![ProductLineItem {
+            product_id: "mock-product-id".to_string(),
+            product_offer_details: Some(ProductOfferDetails {
+                quantity: Some(1),
+                refundable_quantity: None,
+                consumption_state: Some(
+                    google_play_consumption_state::NOT_CONSUMED.to_string(),
+                ),
+            }),
+        }]),
+        purchase_state_context: Some(PurchaseStateContext {
+            purchase_state: Some(
+                google_play_product_purchase_state::PURCHASE_STATE_PURCHASED.to_string(),
+            ),
+        }),
+        order_id: None,
         obfuscated_external_account_id: Some("mock-user-id".to_string()),
         obfuscated_external_profile_id: None,
         region_code: Some("US".to_string()),
+        purchase_completion_time: Some("2024-11-14T22:13:20Z".to_string()),
+        acknowledgement_state: None,
     })
 }
 

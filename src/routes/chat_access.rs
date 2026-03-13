@@ -68,15 +68,24 @@ async fn process_grant_chat_access(
             )
             .await?;
 
-            if product_response.product_id.as_deref() != Some(payload.product_id.as_str()) {
+            let line_item = product_response
+                .product_line_item
+                .as_deref()
+                .and_then(|items| items.first());
+
+            if line_item.map(|i| i.product_id.as_str()) != Some(payload.product_id.as_str()) {
                 return Err(AppError::BadRequest(format!(
                     "Product id mismatch: expected {}, got {:?}",
-                    payload.product_id, product_response.product_id
+                    payload.product_id,
+                    line_item.map(|i| &i.product_id)
                 )));
             }
 
-            if product_response.purchase_state
-                != google_play_product_purchase_state::PURCHASE_STATE_PURCHASED
+            if product_response
+                .purchase_state_context
+                .as_ref()
+                .and_then(|c| c.purchase_state.as_deref())
+                != Some(google_play_product_purchase_state::PURCHASE_STATE_PURCHASED)
             {
                 return Err(AppError::BadRequest(
                     "Purchase is not in purchased state".to_string(),
@@ -130,14 +139,24 @@ async fn process_grant_chat_access(
                 )
                 .await?;
 
-                if product_response.product_id.as_deref() != Some(payload.product_id.as_str()) {
+                let line_item = product_response
+                    .product_line_item
+                    .as_deref()
+                    .and_then(|items| items.first());
+
+                if line_item.map(|i| i.product_id.as_str()) != Some(payload.product_id.as_str()) {
                     return Err(AppError::BadRequest(format!(
                         "Product id mismatch: expected {}, got {:?}",
-                        payload.product_id, product_response.product_id
+                        payload.product_id,
+                        line_item.map(|i| &i.product_id)
                     )));
                 }
 
-                match product_response.consumption_state {
+                let consumption_state = line_item
+                    .and_then(|i| i.product_offer_details.as_ref())
+                    .and_then(|o| o.consumption_state.as_deref());
+
+                match consumption_state {
                     // Google Play already consumed it on a prior attempt — just activate
                     Some(google_play_consumption_state::CONSUMED) => {}
 
