@@ -375,41 +375,62 @@ impl FromSql<Text, Sqlite> for BotChatAccessStatus {
     }
 }
 
-// Google Play consumption states for one-time products
+// Google Play consumption states for one-time products (V2 API string enum values)
 pub mod google_play_consumption_state {
-    pub const NOT_CONSUMED: i32 = 0;
-    pub const CONSUMED: i32 = 1;
+    pub const NOT_CONSUMED: &str = "CONSUMPTION_STATE_YET_TO_BE_CONSUMED";
+    pub const CONSUMED: &str = "CONSUMPTION_STATE_CONSUMED";
 }
 
-// Google Play one-time product purchase states
+// Google Play one-time product purchase states (V2 API string enum values)
 pub mod google_play_product_purchase_state {
-    pub const PURCHASE_STATE_UNSPECIFIED: i32 = 0;
-    pub const PURCHASE_STATE_PURCHASED: i32 = 1;
-    pub const PURCHASE_STATE_PENDING: i32 = 2;
+    pub const PURCHASE_STATE_UNSPECIFIED: &str = "PURCHASE_STATE_UNSPECIFIED";
+    pub const PURCHASE_STATE_PURCHASED: &str = "PURCHASED";
+    pub const PURCHASE_STATE_PENDING: &str = "PENDING";
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ProductOfferDetails {
+    pub quantity: Option<i32>,
+    #[serde(rename = "refundableQuantity")]
+    pub refundable_quantity: Option<i32>,
+    #[serde(rename = "consumptionState")]
+    pub consumption_state: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ProductLineItem {
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    #[serde(rename = "productOfferDetails")]
+    pub product_offer_details: Option<ProductOfferDetails>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct PurchaseStateContext {
+    #[serde(rename = "purchaseState")]
+    pub purchase_state: Option<String>,
 }
 
 // Google Play one-time product purchase v2 API response
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct GooglePlayProductPurchaseV2 {
     pub kind: Option<String>,
-    #[serde(rename = "purchaseTimeMillis")]
-    pub purchase_time_millis: Option<String>,
-    #[serde(rename = "purchaseState")]
-    pub purchase_state: i32,
-    #[serde(rename = "consumptionState")]
-    pub consumption_state: Option<i32>,
-    #[serde(rename = "acknowledgementState")]
-    pub acknowledgement_state: Option<i32>,
-    #[serde(rename = "productId")]
-    pub product_id: Option<String>,
-    #[serde(rename = "quantity")]
-    pub quantity: Option<i32>,
+    #[serde(rename = "productLineItem")]
+    pub product_line_item: Option<Vec<ProductLineItem>>,
+    #[serde(rename = "purchaseStateContext")]
+    pub purchase_state_context: Option<PurchaseStateContext>,
+    #[serde(rename = "orderId")]
+    pub order_id: Option<String>,
     #[serde(rename = "obfuscatedExternalAccountId")]
     pub obfuscated_external_account_id: Option<String>,
     #[serde(rename = "obfuscatedExternalProfileId")]
     pub obfuscated_external_profile_id: Option<String>,
     #[serde(rename = "regionCode")]
     pub region_code: Option<String>,
+    #[serde(rename = "purchaseCompletionTime")]
+    pub purchase_completion_time: Option<String>,
+    #[serde(rename = "acknowledgementState")]
+    pub acknowledgement_state: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
