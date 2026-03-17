@@ -24,4 +24,17 @@ diesel::table! {
     }
 }
 
-diesel::allow_tables_to_appear_in_same_query!(bot_chat_access, purchase_tokens,);
+diesel::table! {
+    transactions (id) {
+        id -> Text,
+        user_id -> Text,
+        transaction_type -> Text,
+        amount_paise -> BigInt,
+        recipient_id -> Text,
+        related_bot_id -> Text,
+        purchase_token -> Text,
+        created_at -> Timestamp,
+    }
+}
+
+diesel::allow_tables_to_appear_in_same_query!(bot_chat_access, purchase_tokens, transactions,);

@@ -1,1 +1,2 @@
 pub static YRAL_PRO_CREDIT_ALLOTMENT: u32 = 30;
+pub const BOT_SUBSCRIPTION_REWARD_PAISE: i64 = 900; // 9 rupees

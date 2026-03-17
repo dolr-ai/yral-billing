@@ -1,4 +1,4 @@
-use crate::types::{BotChatAccessStatus, PurchaseTokenStatus};
+use crate::types::{BotChatAccessStatus, PurchaseTokenStatus, TransactionType};
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use uuid::Uuid;
@@ -62,6 +62,41 @@ impl PurchaseToken {
             status,
             created_at: chrono::Utc::now().naive_utc(),
             expiry_at,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Identifiable, Debug, Clone)]
+#[diesel(table_name = crate::schema::transactions)]
+pub struct Transaction {
+    pub id: String,
+    pub user_id: String,
+    pub transaction_type: TransactionType,
+    pub amount_paise: i64,
+    pub recipient_id: String,
+    pub related_bot_id: String,
+    pub purchase_token: String,
+    pub created_at: NaiveDateTime,
+}
+
+impl Transaction {
+    pub fn new(
+        user_id: String,
+        transaction_type: TransactionType,
+        amount_paise: i64,
+        recipient_id: String,
+        related_bot_id: String,
+        purchase_token: String,
+    ) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            transaction_type,
+            amount_paise,
+            recipient_id,
+            related_bot_id,
+            purchase_token,
+            created_at: chrono::Utc::now().naive_utc(),
         }
     }
 }
