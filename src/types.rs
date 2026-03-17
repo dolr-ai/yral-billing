@@ -451,6 +451,55 @@ pub struct ChatAccessResponse {
     pub expires_at: Option<String>,
 }
 
+// Transaction types
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
+)]
+#[diesel(sql_type = Text)]
+pub enum TransactionType {
+    BotSubscriptionReward,
+}
+
+impl ToSql<Text, Sqlite> for TransactionType {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        match *self {
+            TransactionType::BotSubscriptionReward => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"bot_subscription_reward", out)
+            }
+        }
+    }
+}
+
+impl FromSql<Text, Sqlite> for TransactionType {
+    fn from_sql(
+        bytes: <Sqlite as diesel::backend::Backend>::RawValue<'_>,
+    ) -> deserialize::Result<Self> {
+        let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
+        match s.as_str() {
+            "bot_subscription_reward" => Ok(TransactionType::BotSubscriptionReward),
+            _ => Err("Invalid transaction type".into()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct TransactionResponse {
+    pub id: String,
+    pub user_id: String,
+    pub transaction_type: TransactionType,
+    pub amount_paise: i64,
+    pub recipient_id: String,
+    pub related_bot_id: String,
+    pub purchase_token: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BalanceResponse {
+    pub balance_paise: i64,
+    pub balance_rupees: f64,
+}
+
 // Credit management types
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct CreditRequest {

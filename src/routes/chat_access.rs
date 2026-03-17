@@ -1,11 +1,12 @@
+use crate::consts::BOT_SUBSCRIPTION_REWARD_PAISE;
 use crate::error::{AppError, AppResult};
-use crate::model::BotChatAccess;
+use crate::model::{BotChatAccess, Transaction};
 use crate::routes::goole_play_billing_helpers::{
     consume_google_play_product, fetch_google_play_product_details,
 };
 use crate::types::{
     google_play_consumption_state, google_play_product_purchase_state, ApiResponse,
-    BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest,
+    BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest, TransactionType,
 };
 use crate::AppState;
 use axum::extract::{Query, State};
@@ -122,6 +123,20 @@ async fn process_grant_chat_access(
                 .set((status.eq(BotChatAccessStatus::Active), updated_at.eq(now)))
                 .execute(conn)?;
 
+            // TODO: resolve bot owner principal from bot_id and use it as recipient_id
+            //       once a bot owner lookup mechanism is available
+            let reward = Transaction::new(
+                new_grant.user_id.clone(),
+                TransactionType::BotSubscriptionReward,
+                BOT_SUBSCRIPTION_REWARD_PAISE,
+                payload.bot_id.clone(),
+                payload.bot_id.clone(),
+                payload.purchase_token.clone(),
+            );
+            diesel::insert_into(crate::schema::transactions::table)
+                .values(&reward)
+                .execute(conn)?;
+
             Ok(())
         }
 
@@ -181,6 +196,18 @@ async fn process_grant_chat_access(
                 let now = chrono::Utc::now().naive_utc();
                 diesel::update(bot_chat_access.filter(id.eq(&grant.id)))
                     .set((status.eq(BotChatAccessStatus::Active), updated_at.eq(now)))
+                    .execute(conn)?;
+
+                let reward = Transaction::new(
+                    grant.user_id.clone(),
+                    TransactionType::BotSubscriptionReward,
+                    BOT_SUBSCRIPTION_REWARD_PAISE,
+                    payload.bot_id.clone(),
+                    payload.bot_id.clone(),
+                    payload.purchase_token.clone(),
+                );
+                diesel::insert_into(crate::schema::transactions::table)
+                    .values(&reward)
                     .execute(conn)?;
 
                 Ok(())
