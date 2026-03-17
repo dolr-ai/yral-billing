@@ -4,6 +4,7 @@ use crate::model::{BotChatAccess, Transaction};
 use crate::routes::goole_play_billing_helpers::{
     consume_google_play_product, fetch_google_play_product_details,
 };
+use crate::routes::utils::fetch_main_account_for_influencer_bot;
 use crate::types::{
     google_play_consumption_state, google_play_product_purchase_state, ApiResponse,
     BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest, TransactionType,
@@ -123,13 +124,13 @@ async fn process_grant_chat_access(
                 .set((status.eq(BotChatAccessStatus::Active), updated_at.eq(now)))
                 .execute(conn)?;
 
-            // TODO: resolve bot owner principal from bot_id and use it as recipient_id
-            //       once a bot owner lookup mechanism is available
+            let main_account_id = fetch_main_account_for_influencer_bot(&payload.bot_id).await?;
+
             let reward = Transaction::new(
                 new_grant.user_id.clone(),
                 TransactionType::BotSubscriptionReward,
                 BOT_SUBSCRIPTION_REWARD_PAISE,
-                payload.bot_id.clone(),
+                main_account_id.clone(),
                 payload.bot_id.clone(),
                 payload.purchase_token.clone(),
             );
