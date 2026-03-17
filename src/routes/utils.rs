@@ -105,6 +105,43 @@ pub async fn revoke_yral_pro_plan_access(
     Ok(())
 }
 
+#[cfg(not(feature = "local"))]
+pub async fn fetch_main_account_for_influencer_bot(
+    bot_principal: &str,
+) -> Result<String, AppError> {
+    use yral_canisters_client::user_info_service::{Result7, UserAccountType};
+
+    let ic_agent = ic_agent::Agent::builder()
+        .with_url("https://ic0.app")
+        .build()
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let user_info_client = UserInfoService(USER_INFO_SERVICE_ID, &ic_agent);
+    let bot_principal = Principal::from_text(bot_principal.to_owned())
+        .map_err(|e| AppError::InternalError(e.to_string()))?;
+
+    let profile_details_res = user_info_client
+        .get_user_profile_details_v_7(bot_principal)
+        .await
+        .map_err(|e| AppError::ServiceAccessFailed(e.to_string()))?;
+
+    match profile_details_res {
+        Result7::Ok(bot_profile_details) => match bot_profile_details.account_type {
+            UserAccountType::MainAccount { bots: _ } => Err(AppError::MainAccountNotFound), // If it's a main account, we cannot fetch an owner
+            UserAccountType::BotAccount { owner } => Ok(owner.to_string()),
+        },
+        _ => Err(AppError::MainAccountNotFound),
+    }
+}
+
+#[cfg(feature = "local")]
+pub async fn fetch_main_account_for_influencer_bot(
+    _bot_principal: &str,
+) -> Result<String, AppError> {
+    // In local mode, we cannot fetch details from IC, so we return a mock main account ID
+    Ok("mock-main-account-id".to_string())
+}
+
 pub async fn grant_yral_pro_plan_access(
     product_id: &str,
     admin_ic_agent: &ic_agent::Agent,
