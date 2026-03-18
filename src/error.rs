@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("Admin IC agent is missing")]
     AdminIcAgentMissing,
 
+    #[error("Main account not found for bot account")]
+    MainAccountNotFound,
+
     #[error("Failed to get access token: {0}")]
     AccessTokenFailed(String),
 
@@ -87,6 +90,7 @@ impl AppError {
             | AppError::AuthServiceUnavailable
             | AppError::AdminIcAgentMissing
             | AppError::AccessTokenFailed(_)
+            | AppError::MainAccountNotFound
             | AppError::ServiceAccessFailed(_)
             | AppError::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
 
