@@ -11,7 +11,7 @@ use serde::Deserialize;
 
 #[derive(Deserialize)]
 pub struct UserTransactionsQuery {
-    pub user_id: String,
+    pub recipient_id: String,
 }
 
 #[derive(Deserialize)]
@@ -23,7 +23,7 @@ pub struct BalanceQuery {
     get,
     path = "/transactions",
     params(
-        ("user_id" = String, Query, description = "User ID (subscriber) to fetch transactions for"),
+        ("recipient_id" = String, Query, description = "Recipient ID to fetch transactions for"),
     ),
     responses(
         (status = 200, description = "List of transactions for the user", body = ApiResponse<Vec<TransactionResponse>>),
@@ -40,7 +40,7 @@ pub async fn get_user_transactions(
     let mut conn = app_state.get_db_connection()?;
 
     let rows: Vec<Transaction> = transactions
-        .filter(user_id.eq(&params.user_id))
+        .filter(recipient_id.eq(&params.recipient_id))
         .order(created_at.desc())
         .load(&mut conn)?;
 

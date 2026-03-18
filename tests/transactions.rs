@@ -114,7 +114,7 @@ async fn test_reward_row_created_on_grant() {
     assert_eq!(pt, &token);
 }
 
-// GET /transactions?user_id returns the transaction for the subscriber
+// GET /transactions?recipient_id returns the transaction for the recipient
 #[tokio::test]
 async fn test_get_user_transactions_after_grant() {
     let _db_guard = TestDbGuard::new();
@@ -127,7 +127,7 @@ async fn test_get_user_transactions_after_grant() {
     let app = create_test_app().await;
     let req = Request::builder()
         .method("GET")
-        .uri("/transactions?user_id=mock-user-id")
+        .uri("/transactions?recipient_id=mock-main-account-id")
         .body(Body::empty())
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
@@ -142,11 +142,11 @@ async fn test_get_user_transactions_after_grant() {
     assert_eq!(txns.len(), 1);
     assert_eq!(txns[0]["user_id"], "mock-user-id");
     assert_eq!(txns[0]["amount_paise"], BOT_SUBSCRIPTION_REWARD_PAISE);
-    assert_eq!(txns[0]["recipient_id"], "mock-main-account-id"); // owner of the bot
+    assert_eq!(txns[0]["recipient_id"], "mock-main-account-id");
     assert_eq!(txns[0]["transaction_type"], "BotSubscriptionReward");
 }
 
-// GET /transactions?user_id returns empty list when no purchases made
+// GET /transactions?recipient_id returns empty list when no transactions exist
 #[tokio::test]
 async fn test_get_user_transactions_empty() {
     let _db_guard = TestDbGuard::new();
@@ -154,7 +154,7 @@ async fn test_get_user_transactions_empty() {
     let app = create_test_app().await;
     let req = Request::builder()
         .method("GET")
-        .uri("/transactions?user_id=unknown-user")
+        .uri("/transactions?recipient_id=unknown-recipient")
         .body(Body::empty())
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
