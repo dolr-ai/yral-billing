@@ -52,7 +52,6 @@ pub async fn get_user_transactions(
             transaction_type: t.transaction_type,
             amount_paise: t.amount_paise,
             recipient_id: t.recipient_id,
-            related_bot_id: t.related_bot_id,
             purchase_token: t.purchase_token,
             created_at: chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
                 t.created_at,
@@ -87,9 +86,9 @@ pub async fn get_balance(
 
     let total: Option<i64> = transactions
         .filter(recipient_id.eq(&params.recipient_id))
-        .select(diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>(
-            "SUM(amount_paise)",
-        ))
+        .select(diesel::dsl::sql::<
+            diesel::sql_types::Nullable<diesel::sql_types::BigInt>,
+        >("SUM(amount_paise)"))
         .first(&mut conn)?;
 
     let balance = total.unwrap_or(0);

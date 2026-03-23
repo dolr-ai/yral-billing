@@ -21,10 +21,7 @@ async fn create_test_app() -> Router {
             axum::routing::post(grant_chat_access),
         )
         .route("/transactions", axum::routing::get(get_user_transactions))
-        .route(
-            "/transactions/balance",
-            axum::routing::get(get_balance),
-        )
+        .route("/transactions/balance", axum::routing::get(get_balance))
         .with_state(app_state)
 }
 
@@ -110,7 +107,7 @@ async fn test_reward_row_created_on_grant() {
     let (user_id, amount, recipient_id, pt) = &rows[0];
     assert_eq!(user_id, "mock-user-id"); // set by the mock Google Play response
     assert_eq!(*amount, BOT_SUBSCRIPTION_REWARD_PAISE);
-    assert_eq!(recipient_id, "mock-main-account-id"); // owner of the bot, resolved via fetch_main_account_for_influencer_bot
+    assert_eq!(recipient_id, bot_id); // bot_id is used directly as recipient_id
     assert_eq!(pt, &token);
 }
 
@@ -127,7 +124,7 @@ async fn test_get_user_transactions_after_grant() {
     let app = create_test_app().await;
     let req = Request::builder()
         .method("GET")
-        .uri("/transactions?recipient_id=mock-main-account-id")
+        .uri("/transactions?recipient_id=bot_abc")
         .body(Body::empty())
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
@@ -142,7 +139,7 @@ async fn test_get_user_transactions_after_grant() {
     assert_eq!(txns.len(), 1);
     assert_eq!(txns[0]["user_id"], "mock-user-id");
     assert_eq!(txns[0]["amount_paise"], BOT_SUBSCRIPTION_REWARD_PAISE);
-    assert_eq!(txns[0]["recipient_id"], "mock-main-account-id");
+    assert_eq!(txns[0]["recipient_id"], "bot_abc");
     assert_eq!(txns[0]["transaction_type"], "BotSubscriptionReward");
 }
 
@@ -184,7 +181,7 @@ async fn test_balance_accumulates_across_grants() {
     let app = create_test_app().await;
     let req = Request::builder()
         .method("GET")
-        .uri("/transactions/balance?recipient_id=mock-main-account-id") // owner of the bot
+        .uri("/transactions/balance?recipient_id=bot_balance_test")
         .body(Body::empty())
         .unwrap();
     let res = app.oneshot(req).await.unwrap();
