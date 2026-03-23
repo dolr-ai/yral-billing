@@ -1,0 +1,1 @@
+ALTER TABLE transactions ADD COLUMN related_bot_id VARCHAR(255) NOT NULL DEFAULT '';

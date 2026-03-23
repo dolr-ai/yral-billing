@@ -52,7 +52,6 @@ pub async fn get_user_transactions(
             transaction_type: t.transaction_type,
             amount_paise: t.amount_paise,
             recipient_id: t.recipient_id,
-            related_bot_id: t.related_bot_id,
             purchase_token: t.purchase_token,
             created_at: chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
                 t.created_at,

@@ -489,7 +489,6 @@ pub struct TransactionResponse {
     pub transaction_type: TransactionType,
     pub amount_paise: i64,
     pub recipient_id: String,
-    pub related_bot_id: String,
     pub purchase_token: String,
     pub created_at: String,
 }

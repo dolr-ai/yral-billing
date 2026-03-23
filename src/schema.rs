@@ -31,7 +31,6 @@ diesel::table! {
         transaction_type -> Text,
         amount_paise -> BigInt,
         recipient_id -> Text,
-        related_bot_id -> Text,
         purchase_token -> Text,
         created_at -> Timestamp,
     }
