@@ -21,10 +21,7 @@ async fn create_test_app() -> Router {
             axum::routing::post(grant_chat_access),
         )
         .route("/transactions", axum::routing::get(get_user_transactions))
-        .route(
-            "/transactions/balance",
-            axum::routing::get(get_balance),
-        )
+        .route("/transactions/balance", axum::routing::get(get_balance))
         .with_state(app_state)
 }
 

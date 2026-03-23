@@ -86,9 +86,9 @@ pub async fn get_balance(
 
     let total: Option<i64> = transactions
         .filter(recipient_id.eq(&params.recipient_id))
-        .select(diesel::dsl::sql::<diesel::sql_types::Nullable<diesel::sql_types::BigInt>>(
-            "SUM(amount_paise)",
-        ))
+        .select(diesel::dsl::sql::<
+            diesel::sql_types::Nullable<diesel::sql_types::BigInt>,
+        >("SUM(amount_paise)"))
         .first(&mut conn)?;
 
     let balance = total.unwrap_or(0);
