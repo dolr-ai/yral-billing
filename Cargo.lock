@@ -4570,6 +4570,7 @@ dependencies = [
  "google-cloud-auth",
  "ic-agent",
  "jsonwebtoken",
+ "openssl",
  "reqwest 0.12.24",
  "sentry",
  "serde",

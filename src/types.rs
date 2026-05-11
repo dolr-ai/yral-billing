@@ -445,6 +445,92 @@ pub struct GrantChatAccessRequest {
     pub bot_id: String,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AppleEnvironment {
+    Production,
+    Sandbox,
+}
+
+impl AppleEnvironment {
+    pub fn base_url(self) -> &'static str {
+        match self {
+            AppleEnvironment::Production => "https://api.storekit.itunes.apple.com",
+            AppleEnvironment::Sandbox => "https://api.storekit-sandbox.itunes.apple.com",
+        }
+    }
+}
+
+impl std::str::FromStr for AppleEnvironment {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value.to_ascii_lowercase().as_str() {
+            "production" | "prod" => Ok(AppleEnvironment::Production),
+            "sandbox" => Ok(AppleEnvironment::Sandbox),
+            _ => Err(format!("Invalid Apple environment: {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GrantAppleChatAccessRequest {
+    /// Apple transaction identifier from StoreKit
+    pub transaction_id: String,
+    /// In-app purchase product ID from App Store Connect
+    pub product_id: String,
+    /// Bot/influencer ID to grant access to
+    pub bot_id: String,
+    /// Optional Apple API environment. Defaults to APPLE_DEFAULT_ENVIRONMENT or production.
+    pub environment: Option<AppleEnvironment>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct AppleServerNotificationRequest {
+    #[serde(rename = "signedPayload")]
+    pub signed_payload: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AppleTransactionInfoResponse {
+    #[serde(rename = "signedTransactionInfo")]
+    pub signed_transaction_info: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct AppleJWSTransactionDecodedPayload {
+    #[serde(rename = "transactionId")]
+    pub transaction_id: String,
+    #[serde(rename = "originalTransactionId")]
+    pub original_transaction_id: Option<String>,
+    #[serde(rename = "bundleId")]
+    pub bundle_id: String,
+    #[serde(rename = "productId")]
+    pub product_id: String,
+    #[serde(rename = "appAccountToken")]
+    pub app_account_token: Option<String>,
+    #[serde(rename = "revocationDate")]
+    pub revocation_date: Option<i64>,
+    #[serde(rename = "expiresDate")]
+    pub expires_date: Option<i64>,
+    #[serde(rename = "environment")]
+    pub environment: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AppleNotificationData {
+    #[serde(rename = "signedTransactionInfo")]
+    pub signed_transaction_info: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AppleNotificationDecodedPayload {
+    #[serde(rename = "notificationType")]
+    pub notification_type: String,
+    pub subtype: Option<String>,
+    pub data: Option<AppleNotificationData>,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChatAccessResponse {
     pub has_access: bool,

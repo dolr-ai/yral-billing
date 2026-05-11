@@ -105,6 +105,16 @@ impl GooglePublicKey {
         Ok(google_public_key)
     }
 
+    #[cfg(feature = "local")]
+    pub fn local_empty() -> Self {
+        Self {
+            keys: RwLock::new(JwkResponse {
+                keys: vec![],
+                expiry: chrono::Utc::now() + chrono::Duration::hours(1),
+            }),
+        }
+    }
+
     async fn fetch_google_public_keys(&self) -> Result<(), Box<dyn std::error::Error>> {
         let response = reqwest::get("https://www.googleapis.com/oauth2/v3/certs").await?;
         let headers = response.headers();
