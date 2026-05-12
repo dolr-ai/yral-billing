@@ -375,6 +375,38 @@ impl FromSql<Text, Sqlite> for BotChatAccessStatus {
     }
 }
 
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
+)]
+#[diesel(sql_type = Text)]
+#[serde(rename_all = "lowercase")]
+pub enum PurchaseSource {
+    Google,
+    Apple,
+}
+
+impl ToSql<Text, Sqlite> for PurchaseSource {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        match *self {
+            PurchaseSource::Google => <&str as ToSql<Text, Sqlite>>::to_sql(&"google", out),
+            PurchaseSource::Apple => <&str as ToSql<Text, Sqlite>>::to_sql(&"apple", out),
+        }
+    }
+}
+
+impl FromSql<Text, Sqlite> for PurchaseSource {
+    fn from_sql(
+        bytes: <Sqlite as diesel::backend::Backend>::RawValue<'_>,
+    ) -> deserialize::Result<Self> {
+        let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
+        match s.as_str() {
+            "google" => Ok(PurchaseSource::Google),
+            "apple" => Ok(PurchaseSource::Apple),
+            _ => Err("Invalid purchase source".into()),
+        }
+    }
+}
+
 // Google Play consumption states for one-time products (V2 API string enum values)
 pub mod google_play_consumption_state {
     pub const NOT_CONSUMED: &str = "CONSUMPTION_STATE_YET_TO_BE_CONSUMED";
@@ -455,8 +487,8 @@ pub enum AppleEnvironment {
 impl AppleEnvironment {
     pub fn base_url(self) -> &'static str {
         match self {
-            AppleEnvironment::Production => "https://api.storekit.itunes.apple.com",
-            AppleEnvironment::Sandbox => "https://api.storekit-sandbox.itunes.apple.com",
+            AppleEnvironment::Production => "https://api.storekit.apple.com",
+            AppleEnvironment::Sandbox => "https://api.storekit-sandbox.apple.com",
         }
     }
 }
@@ -531,6 +563,18 @@ pub struct AppleNotificationDecodedPayload {
     pub data: Option<AppleNotificationData>,
 }
 
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct AppleAppAccountTokenRequest {
+    /// YRAL user ID or principal to map to an Apple appAccountToken UUID
+    pub user_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct AppleAppAccountTokenResponse {
+    /// Stable UUID that the iOS app must pass to StoreKit as appAccountToken
+    pub app_account_token: String,
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ChatAccessResponse {
     pub has_access: bool,
@@ -575,6 +619,7 @@ pub struct TransactionResponse {
     pub transaction_type: TransactionType,
     pub amount_paise: i64,
     pub recipient_id: String,
+    pub purchase_source: PurchaseSource,
     pub purchase_token: String,
     pub created_at: String,
 }

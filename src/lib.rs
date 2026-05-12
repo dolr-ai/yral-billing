@@ -19,7 +19,10 @@ use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool, PooledConnection},
 };
-use routes::apple_chat_access::{grant_apple_chat_access, handle_apple_server_notification};
+use routes::apple_chat_access::{
+    get_or_create_apple_app_account_token, grant_apple_chat_access,
+    handle_apple_server_notification,
+};
 use routes::chat_access::{check_chat_access, grant_chat_access};
 use routes::credits::{deduct_credits, increment_credits};
 use routes::purchase::verify_purchase;
@@ -29,9 +32,10 @@ use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use types::{
-    AckData, AckRequest, ApiResponse, AppleEnvironment, AppleServerNotificationRequest,
-    BalanceResponse, BotChatAccessStatus, ChatAccessResponse, CreditRequest, EmptyData,
-    GrantAppleChatAccessRequest, GrantChatAccessRequest, PurchaseTokenStatus, TransactionResponse,
+    AckData, AckRequest, ApiResponse, AppleAppAccountTokenRequest, AppleAppAccountTokenResponse,
+    AppleEnvironment, AppleServerNotificationRequest, BalanceResponse, BotChatAccessStatus,
+    ChatAccessResponse, CreditRequest, EmptyData, GrantAppleChatAccessRequest,
+    GrantChatAccessRequest, PurchaseSource, PurchaseTokenStatus, TransactionResponse,
     TransactionType, VerifyRequest,
 };
 use utoipa::OpenApi;
@@ -140,6 +144,7 @@ impl AppState {
         routes::credits::deduct_credits,
         routes::credits::increment_credits,
         routes::chat_access::grant_chat_access,
+        routes::apple_chat_access::get_or_create_apple_app_account_token,
         routes::apple_chat_access::grant_apple_chat_access,
         routes::apple_chat_access::handle_apple_server_notification,
         routes::chat_access::check_chat_access,
@@ -152,8 +157,9 @@ impl AppState {
             ApiResponse<EmptyData>, EmptyData, VerifyRequest, VerifyResponse, AckRequest, AckData,
             PurchaseTokenStatus, CreditRequest,
             GrantChatAccessRequest, GrantAppleChatAccessRequest, AppleEnvironment,
+            AppleAppAccountTokenRequest, AppleAppAccountTokenResponse,
             AppleServerNotificationRequest, ChatAccessResponse, BotChatAccessStatus,
-            TransactionResponse, TransactionType, BalanceResponse
+            PurchaseSource, TransactionResponse, TransactionType, BalanceResponse
         )
     ),
     modifiers(&SecurityAddon),
@@ -254,6 +260,10 @@ pub fn run() {
             .route("/google/rtdn-webhook", post(handle_rtdn_webhook))
             .route("/google/chat-access/grant", post(grant_chat_access))
             .route("/google/chat-access/check", get(check_chat_access))
+            .route(
+                "/apple/app-account-token",
+                post(get_or_create_apple_app_account_token),
+            )
             .route("/apple/chat-access/grant", post(grant_apple_chat_access))
             .route(
                 "/apple/server-notifications",

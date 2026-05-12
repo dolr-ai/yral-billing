@@ -223,12 +223,16 @@ pub async fn fetch_apple_transaction_info(
     product_id: &str,
     _environment: AppleEnvironment,
 ) -> AppResult<AppleJWSTransactionDecodedPayload> {
+    let app_account_token = uuid::Uuid::parse_str(transaction_id)
+        .map(|uuid| uuid.to_string())
+        .unwrap_or_else(|_| "00000000-0000-0000-0000-000000000001".to_string());
+
     Ok(AppleJWSTransactionDecodedPayload {
         transaction_id: transaction_id.to_string(),
         original_transaction_id: Some(transaction_id.to_string()),
         bundle_id: "com.example".to_string(),
         product_id: product_id.to_string(),
-        app_account_token: Some("mock-user-id".to_string()),
+        app_account_token: Some(app_account_token),
         revocation_date: None,
         expires_date: None,
         environment: Some("Sandbox".to_string()),
@@ -296,11 +300,11 @@ mod tests {
     fn apple_environment_base_urls_are_stable() {
         assert_eq!(
             AppleEnvironment::Production.base_url(),
-            "https://api.storekit.itunes.apple.com"
+            "https://api.storekit.apple.com"
         );
         assert_eq!(
             AppleEnvironment::Sandbox.base_url(),
-            "https://api.storekit-sandbox.itunes.apple.com"
+            "https://api.storekit-sandbox.apple.com"
         );
     }
 }

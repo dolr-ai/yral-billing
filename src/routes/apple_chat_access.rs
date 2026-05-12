@@ -4,20 +4,80 @@ use diesel::prelude::*;
 use crate::{
     consts::BOT_SUBSCRIPTION_REWARD_PAISE,
     error::{AppError, AppResult},
-    model::{BotChatAccess, Transaction},
+    model::{AppleAppAccountToken, BotChatAccess, Transaction},
     routes::apple_billing_helpers::{
         decode_apple_notification_jws, decode_apple_transaction_jws, default_apple_environment,
         fetch_apple_transaction_info,
     },
     types::{
-        ApiResponse, AppleServerNotificationRequest, BotChatAccessStatus, EmptyData,
-        GrantAppleChatAccessRequest, TransactionType,
+        ApiResponse, AppleAppAccountTokenRequest, AppleAppAccountTokenResponse,
+        AppleServerNotificationRequest, BotChatAccessStatus, EmptyData,
+        GrantAppleChatAccessRequest, PurchaseSource, TransactionType,
     },
     AppState,
 };
 
-fn apple_purchase_token(transaction_id: &str) -> String {
-    format!("apple:{transaction_id}")
+#[utoipa::path(
+    post,
+    path = "/apple/app-account-token",
+    request_body = AppleAppAccountTokenRequest,
+    responses(
+        (status = 200, description = "Stable Apple appAccountToken UUID", body = ApiResponse<AppleAppAccountTokenResponse>),
+        (status = 500, description = "Internal server error", body = ApiResponse<EmptyData>)
+    ),
+    tag = "Chat Access"
+)]
+pub async fn get_or_create_apple_app_account_token(
+    State(app_state): State<AppState>,
+    Json(payload): Json<AppleAppAccountTokenRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let mut conn = app_state.get_db_connection()?;
+    let token = get_or_create_app_account_token(&mut conn, &payload.user_id)?;
+
+    Ok((
+        StatusCode::OK,
+        Json(ApiResponse::success(AppleAppAccountTokenResponse {
+            app_account_token: token,
+        })),
+    ))
+}
+
+fn get_or_create_app_account_token(
+    conn: &mut SqliteConnection,
+    user_id_param: &str,
+) -> AppResult<String> {
+    use crate::schema::apple_app_account_tokens::dsl::*;
+
+    let existing: Option<AppleAppAccountToken> = apple_app_account_tokens
+        .filter(user_id.eq(user_id_param))
+        .first(conn)
+        .optional()?;
+
+    if let Some(existing) = existing {
+        return Ok(existing.app_account_token);
+    }
+
+    let new_mapping = AppleAppAccountToken::new(user_id_param.to_string());
+    diesel::insert_into(apple_app_account_tokens)
+        .values(&new_mapping)
+        .execute(conn)?;
+
+    Ok(new_mapping.app_account_token)
+}
+
+fn resolve_app_account_token(
+    conn: &mut SqliteConnection,
+    app_account_token_param: &str,
+) -> AppResult<String> {
+    use crate::schema::apple_app_account_tokens::dsl::*;
+
+    let mapping: AppleAppAccountToken = apple_app_account_tokens
+        .filter(app_account_token.eq(app_account_token_param))
+        .first(conn)
+        .optional()?
+        .ok_or_else(|| AppError::AppleVerification("Unknown Apple appAccountToken".to_string()))?;
+
+    Ok(mapping.user_id)
 }
 
 #[utoipa::path(
@@ -50,8 +110,9 @@ async fn process_grant_apple_chat_access(
 ) -> AppResult<()> {
     use crate::schema::bot_chat_access::dsl::*;
 
-    let stored_purchase_token = apple_purchase_token(&payload.transaction_id);
+    let stored_purchase_token = payload.transaction_id.clone();
     let existing: Option<BotChatAccess> = bot_chat_access
+        .filter(purchase_source.eq(PurchaseSource::Apple))
         .filter(purchase_token.eq(&stored_purchase_token))
         .first(conn)
         .optional()?;
@@ -67,11 +128,13 @@ async fn process_grant_apple_chat_access(
             )
             .await?;
 
-            let user_id_str = transaction
+            let app_account_token = transaction
                 .app_account_token
                 .ok_or(AppError::ExternalAccountIdentifiersMissing)?;
+            let user_id_str = resolve_app_account_token(conn, &app_account_token)?;
             let access_expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(24);
             let new_grant = BotChatAccess::new(
+                PurchaseSource::Apple,
                 stored_purchase_token.clone(),
                 user_id_str,
                 payload.bot_id.clone(),
@@ -92,6 +155,7 @@ async fn process_grant_apple_chat_access(
                 TransactionType::BotSubscriptionReward,
                 BOT_SUBSCRIPTION_REWARD_PAISE,
                 payload.bot_id.clone(),
+                PurchaseSource::Apple,
                 stored_purchase_token,
             );
             diesel::insert_into(crate::schema::transactions::table)
@@ -109,9 +173,13 @@ async fn process_grant_apple_chat_access(
                     .execute(conn)?;
 
                 let reward_exists: bool = diesel::select(diesel::dsl::exists(
-                    crate::schema::transactions::table.filter(
-                        crate::schema::transactions::purchase_token.eq(&stored_purchase_token),
-                    ),
+                    crate::schema::transactions::table
+                        .filter(
+                            crate::schema::transactions::purchase_source.eq(PurchaseSource::Apple),
+                        )
+                        .filter(
+                            crate::schema::transactions::purchase_token.eq(&stored_purchase_token),
+                        ),
                 ))
                 .get_result(conn)?;
 
@@ -121,6 +189,7 @@ async fn process_grant_apple_chat_access(
                         TransactionType::BotSubscriptionReward,
                         BOT_SUBSCRIPTION_REWARD_PAISE,
                         payload.bot_id.clone(),
+                        PurchaseSource::Apple,
                         stored_purchase_token,
                     );
                     diesel::insert_into(crate::schema::transactions::table)
@@ -182,28 +251,46 @@ async fn process_apple_server_notification(
     };
 
     let transaction = decode_apple_transaction_jws(&signed_transaction_info)?;
-    let stored_purchase_token = apple_purchase_token(&transaction.transaction_id);
+    let stored_purchase_token = transaction.transaction_id;
 
     use crate::schema::bot_chat_access::dsl;
     let mut conn = app_state.get_db_connection()?;
     let now = chrono::Utc::now().naive_utc();
 
-    diesel::update(dsl::bot_chat_access.filter(dsl::purchase_token.eq(stored_purchase_token)))
-        .set((
-            dsl::status.eq(BotChatAccessStatus::Canceled),
-            dsl::updated_at.eq(now),
-        ))
-        .execute(&mut conn)?;
+    diesel::update(
+        dsl::bot_chat_access
+            .filter(dsl::purchase_source.eq(PurchaseSource::Apple))
+            .filter(dsl::purchase_token.eq(stored_purchase_token)),
+    )
+    .set((
+        dsl::status.eq(BotChatAccessStatus::Canceled),
+        dsl::updated_at.eq(now),
+    ))
+    .execute(&mut conn)?;
 
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::apple_purchase_token;
+    use super::get_or_create_app_account_token;
+    use diesel::prelude::*;
+    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+
+    const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 
     #[test]
-    fn apple_purchase_tokens_are_namespaced() {
-        assert_eq!(apple_purchase_token("12345"), "apple:12345");
+    fn app_account_tokens_are_stable_for_user() {
+        let db_path = format!("./test_apple_token_{}.db", uuid::Uuid::new_v4());
+        let mut conn = SqliteConnection::establish(&db_path).unwrap();
+        conn.run_pending_migrations(MIGRATIONS).unwrap();
+
+        let first = get_or_create_app_account_token(&mut conn, "user-1").unwrap();
+        let second = get_or_create_app_account_token(&mut conn, "user-1").unwrap();
+
+        assert_eq!(first, second);
+        assert!(uuid::Uuid::parse_str(&first).is_ok());
+
+        let _ = std::fs::remove_file(db_path);
     }
 }
