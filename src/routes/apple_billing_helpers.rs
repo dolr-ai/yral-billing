@@ -6,6 +6,14 @@ use chrono::Utc;
 #[cfg(not(feature = "local"))]
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 #[cfg(not(feature = "local"))]
+use openssl::hash::MessageDigest;
+#[cfg(not(feature = "local"))]
+use openssl::stack::Stack;
+#[cfg(not(feature = "local"))]
+use openssl::x509::store::X509StoreBuilder;
+#[cfg(not(feature = "local"))]
+use openssl::x509::X509StoreContext;
+#[cfg(not(feature = "local"))]
 use openssl::x509::X509;
 use serde::Deserialize;
 #[cfg(not(feature = "local"))]
@@ -105,6 +113,87 @@ struct AppleJwsHeader {
 }
 
 #[cfg(not(feature = "local"))]
+const APPLE_ROOT_CA_SHA256_FINGERPRINTS: [[u8; 32]; 3] = [
+    // Apple Root CA - G3
+    [
+        0x63, 0x34, 0x3a, 0xbf, 0xb8, 0x9a, 0x6a, 0x03, 0xeb, 0xb5, 0x7e, 0x9b, 0x3f, 0x5f, 0xa7,
+        0xbe, 0x7c, 0x4f, 0x5c, 0x75, 0x6f, 0x30, 0x17, 0xb3, 0xa8, 0xc4, 0x88, 0xc3, 0x65, 0x3e,
+        0x91, 0x79,
+    ],
+    // Apple Root CA - G2
+    [
+        0xc2, 0xb9, 0xb0, 0x42, 0xdd, 0x57, 0x83, 0x0e, 0x7d, 0x11, 0x7d, 0xac, 0x55, 0xac, 0x8a,
+        0xe1, 0x94, 0x07, 0xd3, 0x8e, 0x41, 0xd8, 0x8f, 0x32, 0x15, 0xbc, 0x3a, 0x89, 0x04, 0x44,
+        0xa0, 0x50,
+    ],
+    // Apple Root CA
+    [
+        0xb0, 0xb1, 0x73, 0x0e, 0xcb, 0xc7, 0xff, 0x45, 0x05, 0x14, 0x2c, 0x49, 0xf1, 0x29, 0x5e,
+        0x6e, 0xda, 0x6b, 0xca, 0xed, 0x7e, 0x2c, 0x68, 0xc5, 0xbe, 0x91, 0xb5, 0xa1, 0x10, 0x01,
+        0xf0, 0x24,
+    ],
+];
+
+#[cfg(not(feature = "local"))]
+fn verify_apple_certificate_chain(certs: &[X509]) -> AppResult<()> {
+    if certs.len() < 2 {
+        return Err(AppError::AppleVerification(
+            "Apple JWS certificate chain is incomplete".to_string(),
+        ));
+    }
+
+    let root_cert = certs.last().ok_or_else(|| {
+        AppError::AppleVerification("Apple JWS missing root certificate".to_string())
+    })?;
+    let root_fingerprint = root_cert
+        .digest(MessageDigest::sha256())
+        .map_err(|e| AppError::AppleVerification(format!("Failed to hash Apple root: {e}")))?;
+
+    if !APPLE_ROOT_CA_SHA256_FINGERPRINTS
+        .iter()
+        .any(|fingerprint| root_fingerprint.as_ref() == fingerprint)
+    {
+        return Err(AppError::AppleVerification(
+            "Apple JWS root certificate is not trusted".to_string(),
+        ));
+    }
+
+    let mut store_builder = X509StoreBuilder::new()
+        .map_err(|e| AppError::AppleVerification(format!("Failed to create X509 store: {e}")))?;
+    store_builder
+        .add_cert(root_cert.clone())
+        .map_err(|e| AppError::AppleVerification(format!("Failed to trust Apple root: {e}")))?;
+    let store = store_builder.build();
+
+    let mut chain = Stack::new()
+        .map_err(|e| AppError::AppleVerification(format!("Failed to create X509 chain: {e}")))?;
+    for cert in certs.iter().skip(1).take(certs.len().saturating_sub(2)) {
+        chain.push(cert.clone()).map_err(|e| {
+            AppError::AppleVerification(format!("Failed to build Apple chain: {e}"))
+        })?;
+    }
+
+    let leaf_cert = certs.first().ok_or_else(|| {
+        AppError::AppleVerification("Apple JWS missing leaf certificate".to_string())
+    })?;
+    let mut context = X509StoreContext::new()
+        .map_err(|e| AppError::AppleVerification(format!("Failed to create X509 context: {e}")))?;
+
+    let verified = context
+        .init(&store, leaf_cert, &chain, |ctx| ctx.verify_cert())
+        .map_err(|e| AppError::AppleVerification(format!("Apple certificate chain failed: {e}")))?;
+
+    if !verified {
+        return Err(AppError::AppleVerification(format!(
+            "Apple certificate chain failed: {}",
+            context.error()
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(not(feature = "local"))]
 fn decode_verified_jws_payload<T>(jws: &str) -> AppResult<T>
 where
     T: for<'de> Deserialize<'de>,
@@ -118,18 +207,28 @@ where
         .map_err(|e| AppError::AppleVerification(format!("Invalid JWS header: {e}")))?;
     let header = serde_json::from_slice::<AppleJwsHeader>(&header_bytes)
         .map_err(|e| AppError::AppleVerification(format!("Failed to parse JWS header: {e}")))?;
-    let leaf_cert = header
+    let encoded_certs = header
         .x5c
-        .and_then(|certs| certs.into_iter().next())
+        .filter(|certs| !certs.is_empty())
         .ok_or_else(|| {
             AppError::AppleVerification("Apple JWS missing x5c certificate".to_string())
         })?;
-    let leaf_cert_der = BASE64_STANDARD
-        .decode(leaf_cert)
-        .map_err(|e| AppError::AppleVerification(format!("Invalid Apple certificate: {e}")))?;
-    let cert = X509::from_der(&leaf_cert_der)
-        .map_err(|e| AppError::AppleVerification(format!("Invalid Apple certificate DER: {e}")))?;
-    let public_key = cert
+
+    let certs = encoded_certs
+        .into_iter()
+        .map(|cert| {
+            let der = BASE64_STANDARD.decode(cert).map_err(|e| {
+                AppError::AppleVerification(format!("Invalid Apple certificate: {e}"))
+            })?;
+            X509::from_der(&der).map_err(|e| {
+                AppError::AppleVerification(format!("Invalid Apple certificate DER: {e}"))
+            })
+        })
+        .collect::<AppResult<Vec<_>>>()?;
+
+    verify_apple_certificate_chain(&certs)?;
+
+    let public_key = certs[0]
         .public_key()
         .and_then(|key| key.public_key_to_pem())
         .map_err(|e| AppError::AppleVerification(format!("Invalid Apple public key: {e}")))?;
