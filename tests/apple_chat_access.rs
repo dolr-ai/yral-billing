@@ -6,8 +6,10 @@ use diesel::prelude::*;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use tower::ServiceExt;
 use uuid;
+use yral_billing::model::AppleAppAccountToken;
 use yral_billing::routes::apple_chat_access::{
-    grant_apple_chat_access, handle_apple_server_notification,
+    get_or_create_apple_app_account_token, grant_apple_chat_access,
+    handle_apple_server_notification,
 };
 use yral_billing::routes::chat_access::check_chat_access;
 use yral_billing::routes::transactions::{get_balance, get_user_transactions};
@@ -22,6 +24,10 @@ const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
 async fn create_test_app() -> Router {
     let app_state = AppState::new().await;
     Router::new()
+        .route(
+            "/apple/app-account-token",
+            axum::routing::post(get_or_create_apple_app_account_token),
+        )
         .route(
             "/apple/chat-access/grant",
             axum::routing::post(grant_apple_chat_access),
@@ -58,6 +64,10 @@ impl TestDbGuard {
             original_database_url,
         }
     }
+
+    fn db_path(&self) -> &str {
+        &self.db_path
+    }
 }
 
 impl Drop for TestDbGuard {
@@ -77,6 +87,23 @@ fn grant_request(transaction_id: &str, bot_id: &str) -> GrantAppleChatAccessRequ
         bot_id: bot_id.to_string(),
         environment: None,
     }
+}
+
+fn insert_default_apple_account_mapping(db_path: &str, user_id: &str) {
+    let mut conn = SqliteConnection::establish(db_path).unwrap();
+    let now = chrono::Utc::now().naive_utc();
+    let mapping = AppleAppAccountToken {
+        id: uuid::Uuid::new_v4().to_string(),
+        app_account_token: "00000000-0000-0000-0000-000000000001".to_string(),
+        user_id: user_id.to_string(),
+        created_at: now,
+        updated_at: now,
+    };
+
+    diesel::insert_into(yral_billing::schema::apple_app_account_tokens::table)
+        .values(&mapping)
+        .execute(&mut conn)
+        .unwrap();
 }
 
 async fn post_grant(
@@ -100,7 +127,8 @@ fn fake_jws<T: serde::Serialize>(payload: &T) -> String {
 
 #[tokio::test]
 async fn test_grant_apple_chat_access_success() {
-    let _db_guard = TestDbGuard::new();
+    let db_guard = TestDbGuard::new();
+    insert_default_apple_account_mapping(db_guard.db_path(), "mock-user-id");
     let app = create_test_app().await;
     let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
 
@@ -110,7 +138,8 @@ async fn test_grant_apple_chat_access_success() {
 
 #[tokio::test]
 async fn test_grant_apple_chat_access_idempotent() {
-    let _db_guard = TestDbGuard::new();
+    let db_guard = TestDbGuard::new();
+    insert_default_apple_account_mapping(db_guard.db_path(), "mock-user-id");
     let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
     let payload = grant_request(&transaction_id, "bot_abc");
 
@@ -125,7 +154,8 @@ async fn test_grant_apple_chat_access_idempotent() {
 
 #[tokio::test]
 async fn test_grant_apple_chat_access_different_bot_rejected() {
-    let _db_guard = TestDbGuard::new();
+    let db_guard = TestDbGuard::new();
+    insert_default_apple_account_mapping(db_guard.db_path(), "mock-user-id");
     let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
 
     let app = create_test_app().await;
@@ -139,7 +169,8 @@ async fn test_grant_apple_chat_access_different_bot_rejected() {
 
 #[tokio::test]
 async fn test_apple_chat_access_check_and_balance() {
-    let _db_guard = TestDbGuard::new();
+    let db_guard = TestDbGuard::new();
+    insert_default_apple_account_mapping(db_guard.db_path(), "mock-user-id");
     let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
 
     let app = create_test_app().await;
@@ -179,7 +210,8 @@ async fn test_apple_chat_access_check_and_balance() {
 
 #[tokio::test]
 async fn test_apple_refund_notification_cancels_access() {
-    let _db_guard = TestDbGuard::new();
+    let db_guard = TestDbGuard::new();
+    insert_default_apple_account_mapping(db_guard.db_path(), "mock-user-id");
     let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
 
     let app = create_test_app().await;
@@ -191,7 +223,7 @@ async fn test_apple_refund_notification_cancels_access() {
         original_transaction_id: Some(transaction_id.clone()),
         bundle_id: "com.example".to_string(),
         product_id: "ios-chat-product".to_string(),
-        app_account_token: Some("mock-user-id".to_string()),
+        app_account_token: Some("00000000-0000-0000-0000-000000000001".to_string()),
         revocation_date: Some(1),
         expires_date: None,
         environment: Some("Sandbox".to_string()),
@@ -233,4 +265,53 @@ async fn test_apple_refund_notification_cancels_access() {
         .unwrap();
     let response: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(response["data"]["has_access"], false);
+}
+
+#[tokio::test]
+async fn test_apple_app_account_token_endpoint_is_stable() {
+    let _db_guard = TestDbGuard::new();
+    let app = create_test_app().await;
+
+    let payload = serde_json::json!({ "user_id": "user-token-test" });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/apple/app-account-token")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let response: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    let first = response["data"]["app_account_token"].as_str().unwrap();
+    assert!(uuid::Uuid::parse_str(first).is_ok());
+
+    let app = create_test_app().await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/apple/app-account-token")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let response: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(response["data"]["app_account_token"], first);
+}
+
+#[tokio::test]
+async fn test_grant_apple_chat_access_unknown_app_account_token_rejected() {
+    let _db_guard = TestDbGuard::new();
+    let app = create_test_app().await;
+    let transaction_id = format!("ios_txn_{}", uuid::Uuid::new_v4());
+
+    let res = post_grant(app, &grant_request(&transaction_id, "bot_abc")).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }

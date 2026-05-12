@@ -6,7 +6,7 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use tower::ServiceExt; // for `oneshot`
 use uuid;
 use yral_billing::routes::chat_access::{check_chat_access, grant_chat_access};
-use yral_billing::types::{BotChatAccessStatus, GrantChatAccessRequest};
+use yral_billing::types::{BotChatAccessStatus, GrantChatAccessRequest, PurchaseSource};
 use yral_billing::AppState;
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
@@ -233,6 +233,7 @@ async fn test_check_chat_access_expired() {
     let mut conn = SqliteConnection::establish(db_guard.db_path()).unwrap();
     let expired_at = (chrono::Utc::now() - chrono::Duration::hours(1)).naive_utc();
     let mut grant = BotChatAccess::new(
+        PurchaseSource::Google,
         token.clone(),
         "mock-user-id".to_string(),
         "bot_abc".to_string(),
