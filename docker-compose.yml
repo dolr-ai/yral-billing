@@ -29,6 +29,7 @@ services:
     image: litestream/litestream:latest
     container_name: yral-billing-litestream
     restart: unless-stopped
+    user: "0:0"
     environment:
       LITESTREAM_ACCESS_KEY_ID: ${LITESTREAM_ACCESS_KEY_ID}
       LITESTREAM_SECRET_ACCESS_KEY: ${LITESTREAM_SECRET_ACCESS_KEY}
@@ -43,7 +44,7 @@ services:
     networks:
       - low_traffic_1
     healthcheck:
-      test: ["CMD", "test", "-f", "/data/billing.db"]
+      test: ["CMD", "/usr/local/bin/litestream", "version"]
       interval: 30s
       timeout: 10s
       retries: 3
