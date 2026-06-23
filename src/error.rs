@@ -127,6 +127,10 @@ impl IntoResponse for AppError {
         let status_code = self.status_code();
         let error_message = self.message();
 
+        if status_code.is_server_error() {
+            sentry::capture_message(&error_message, sentry::Level::Error);
+        }
+
         let response_body = ApiResponse::<()>::error(error_message);
 
         (status_code, Json(response_body)).into_response()
