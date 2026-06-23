@@ -211,19 +211,24 @@ async fn root_redirect() -> Redirect {
 pub fn run() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         // Initialize Sentry
-        let _guard = sentry::init((
-            "https://d63e426c9935ab2cdaedfd53060f23e7@apm.yral.com/17",
-            sentry::ClientOptions {
-                release: sentry::release_name!(),
-                environment: Some(
-                    env::var("APP_ENV")
-                        .unwrap_or_else(|_| "development".to_string())
-                        .into(),
-                ),
-                traces_sample_rate: 1.0,
-                ..Default::default()
-            },
-        ));
+        let _guard = env::var("SENTRY_DSN").ok().map(|dsn| {
+            sentry::init((
+                dsn,
+                sentry::ClientOptions {
+                    release: sentry::release_name!(),
+                    environment: Some(
+                        env::var("APP_ENV")
+                            .unwrap_or_else(|_| "development".to_string())
+                            .into(),
+                    ),
+                    traces_sample_rate: env::var("SENTRY_TRACES_SAMPLE_RATE")
+                        .ok()
+                        .and_then(|rate| rate.parse::<f32>().ok())
+                        .unwrap_or(1.0),
+                    ..Default::default()
+                },
+            ))
+        });
 
         // Run database migrations on startup
         let app_state = AppState::new().await;
