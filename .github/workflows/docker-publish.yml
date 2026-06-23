@@ -134,12 +134,12 @@ jobs:
             docker compose up -d
             docker compose ps
 
-            if docker ps --format '{{.Names}}' | grep -qx hello-world-proxy-1; then
-              docker network connect low_traffic_1 hello-world-proxy-1 2>/dev/null || true
+            if docker ps --format '{{.Names}}' | grep -qx yral-proxy; then
+              docker network connect low_traffic_1 yral-proxy 2>/dev/null || true
           python3 <<'PY'
           from pathlib import Path
 
-          path = Path("/opt/hello-world/Caddyfile")
+          path = Path("/home/yral-deploy/yral-proxy/Caddyfile")
           block = [
               "billing.sarvesh.yral.com:443 {",
               "    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem",
@@ -171,8 +171,8 @@ jobs:
           output.extend(["", *block])
           path.write_text("\n".join(output) + "\n")
           PY
-              docker restart hello-world-proxy-1
-              docker exec hello-world-proxy-1 caddy validate --config /etc/caddy/Caddyfile
+              docker restart yral-proxy
+              docker exec yral-proxy caddy validate --config /etc/caddy/Caddyfile
             fi
           ENDSSH
 
