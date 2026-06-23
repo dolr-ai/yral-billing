@@ -133,6 +133,47 @@ jobs:
             docker run --rm --user root -v "\$PWD/data:/data" ghcr.io/dolr-ai/yral-billing:latest sh -c 'chmod 0777 /data'
             docker compose up -d
             docker compose ps
+
+            if docker ps --format '{{.Names}}' | grep -qx hello-world-proxy-1; then
+              docker network connect low_traffic_1 hello-world-proxy-1 2>/dev/null || true
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("/opt/hello-world/Caddyfile")
+          block = [
+              "billing.sarvesh.yral.com:443 {",
+              "    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem",
+              "    reverse_proxy yral-billing:3000",
+              "}",
+          ]
+          lines = path.read_text().splitlines()
+          output = []
+          i = 0
+
+          while i < len(lines):
+              if lines[i].strip() == "billing.sarvesh.yral.com:443 {":
+                  depth = 0
+                  while i < len(lines):
+                      depth += lines[i].count("{") - lines[i].count("}")
+                      i += 1
+                      if depth <= 0:
+                          break
+                  while output and output[-1].strip() == "":
+                      output.pop()
+                  continue
+
+              output.append(lines[i])
+              i += 1
+
+          while output and output[-1].strip() == "":
+              output.pop()
+
+          output.extend(["", *block])
+          path.write_text("\n".join(output) + "\n")
+          PY
+              docker restart hello-world-proxy-1
+              docker exec hello-world-proxy-1 caddy validate --config /etc/caddy/Caddyfile
+            fi
           ENDSSH
 
       - name: Cleanup
