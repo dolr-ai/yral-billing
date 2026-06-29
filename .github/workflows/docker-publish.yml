@@ -138,6 +138,7 @@ jobs:
               docker pull ghcr.io/dolr-ai/yral-billing:latest
               mkdir -p data
               docker run --rm --user root -v "\$PWD/data:/data" ghcr.io/dolr-ai/yral-billing:latest sh -c 'chmod 0777 /data'
+              docker rm -f yral-billing yral-billing-litestream >/dev/null 2>&1 || true
               docker compose up -d
               docker compose ps
 
