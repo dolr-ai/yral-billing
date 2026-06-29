@@ -17,6 +17,15 @@ pub enum AppError {
     #[error("Google Play verification failed: {0}")]
     GooglePlayVerification(String),
 
+    #[error("Apple App Store API error: {0}")]
+    AppleApi(String),
+
+    #[error("Apple App Store verification failed: {0}")]
+    AppleVerification(String),
+
+    #[error("Apple App Store configuration error: {0}")]
+    AppleConfig(String),
+
     #[error("Authentication service unavailable")]
     AuthServiceUnavailable,
 
@@ -96,6 +105,9 @@ impl AppError {
 
             AppError::GooglePlayApi(_)
             | AppError::GooglePlayVerification(_)
+            | AppError::AppleApi(_)
+            | AppError::AppleVerification(_)
+            | AppError::AppleConfig(_)
             | AppError::TokenAlreadyUsed
             | AppError::TokenExpired
             | AppError::SubscriptionCanceled

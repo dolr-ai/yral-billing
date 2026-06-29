@@ -1,4 +1,4 @@
-use crate::types::{BotChatAccessStatus, PurchaseTokenStatus, TransactionType};
+use crate::types::{BotChatAccessStatus, PurchaseSource, PurchaseTokenStatus, TransactionType};
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use uuid::Uuid;
@@ -7,6 +7,7 @@ use uuid::Uuid;
 #[diesel(table_name = crate::schema::bot_chat_access)]
 pub struct BotChatAccess {
     pub id: String,
+    pub purchase_source: PurchaseSource,
     pub purchase_token: String,
     pub user_id: String,
     pub bot_id: String,
@@ -18,6 +19,7 @@ pub struct BotChatAccess {
 
 impl BotChatAccess {
     pub fn new(
+        purchase_source: PurchaseSource,
         purchase_token: String,
         user_id: String,
         bot_id: String,
@@ -26,6 +28,7 @@ impl BotChatAccess {
         let now = chrono::Utc::now().naive_utc();
         Self {
             id: Uuid::new_v4().to_string(),
+            purchase_source,
             purchase_token,
             user_id,
             bot_id,
@@ -74,6 +77,7 @@ pub struct Transaction {
     pub transaction_type: TransactionType,
     pub amount_paise: i64,
     pub recipient_id: String,
+    pub purchase_source: PurchaseSource,
     pub purchase_token: String,
     pub created_at: NaiveDateTime,
 }
@@ -84,6 +88,7 @@ impl Transaction {
         transaction_type: TransactionType,
         amount_paise: i64,
         recipient_id: String,
+        purchase_source: PurchaseSource,
         purchase_token: String,
     ) -> Self {
         Self {
@@ -92,8 +97,32 @@ impl Transaction {
             transaction_type,
             amount_paise,
             recipient_id,
+            purchase_source,
             purchase_token,
             created_at: chrono::Utc::now().naive_utc(),
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Identifiable, Debug, Clone)]
+#[diesel(table_name = crate::schema::apple_app_account_tokens)]
+pub struct AppleAppAccountToken {
+    pub id: String,
+    pub app_account_token: String,
+    pub user_id: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl AppleAppAccountToken {
+    pub fn new(user_id: String) -> Self {
+        let now = chrono::Utc::now().naive_utc();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            app_account_token: Uuid::new_v4().to_string(),
+            user_id,
+            created_at: now,
+            updated_at: now,
         }
     }
 }

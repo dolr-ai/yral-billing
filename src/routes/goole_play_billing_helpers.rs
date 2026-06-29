@@ -160,9 +160,7 @@ pub async fn fetch_google_play_product_details(
             product_offer_details: Some(ProductOfferDetails {
                 quantity: Some(1),
                 refundable_quantity: None,
-                consumption_state: Some(
-                    google_play_consumption_state::NOT_CONSUMED.to_string(),
-                ),
+                consumption_state: Some(google_play_consumption_state::NOT_CONSUMED.to_string()),
             }),
         }]),
         purchase_state_context: Some(PurchaseStateContext {

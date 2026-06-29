@@ -6,7 +6,8 @@ use crate::routes::goole_play_billing_helpers::{
 };
 use crate::types::{
     google_play_consumption_state, google_play_product_purchase_state, ApiResponse,
-    BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest, TransactionType,
+    BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest, PurchaseSource,
+    TransactionType,
 };
 use crate::AppState;
 use axum::extract::{Query, State};
@@ -55,6 +56,7 @@ async fn process_grant_chat_access(
     use crate::schema::bot_chat_access::dsl::*;
 
     let existing: Option<BotChatAccess> = bot_chat_access
+        .filter(purchase_source.eq(PurchaseSource::Google))
         .filter(purchase_token.eq(&payload.purchase_token))
         .first(conn)
         .optional()?;
@@ -100,6 +102,7 @@ async fn process_grant_chat_access(
             let access_expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(24);
 
             let new_grant = BotChatAccess::new(
+                PurchaseSource::Google,
                 payload.purchase_token.clone(),
                 user_id_str,
                 payload.bot_id.clone(),
@@ -128,6 +131,7 @@ async fn process_grant_chat_access(
                 TransactionType::BotSubscriptionReward,
                 BOT_SUBSCRIPTION_REWARD_PAISE,
                 payload.bot_id.clone(),
+                PurchaseSource::Google,
                 payload.purchase_token.clone(),
             );
             diesel::insert_into(crate::schema::transactions::table)
@@ -200,6 +204,7 @@ async fn process_grant_chat_access(
                     TransactionType::BotSubscriptionReward,
                     BOT_SUBSCRIPTION_REWARD_PAISE,
                     payload.bot_id.clone(),
+                    PurchaseSource::Google,
                     payload.purchase_token.clone(),
                 );
                 diesel::insert_into(crate::schema::transactions::table)
