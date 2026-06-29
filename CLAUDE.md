@@ -60,14 +60,12 @@ Workflow: `.github/workflows/docker-publish.yml`
 - `push` to `main`: builds and pushes `ghcr.io/dolr-ai/yral-billing:latest`, then deploys.
 - `workflow_dispatch`: builds and pushes, but deploy only runs if the ref is `refs/heads/main`.
 
-Important: the committed workflow deploys the same Docker Compose stack to both `sarvesh-1` and `sarvesh-2`. That means a merge to `main` will try to run billing containers on both servers with separate SQLite DB files and Litestream sidecars.
+The deploy matrix has roles:
 
-That does not match the current manual live topology where only `sarvesh-1` writes to SQLite and `sarvesh-2` forwards to it.
+- `sarvesh-1` is `primary`. It receives `docker-compose.yml` and `litestream.yml`, pulls the latest billing image, runs the billing container, runs Litestream, and configures local Caddy to proxy to `yral-billing:3000`.
+- `sarvesh-2` is `edge`. It removes any local billing/Litestream containers and configures Caddy to proxy `billing.sarvesh.yral.com` to `sarvesh-1`.
 
-Before merging to `main`, decide one of:
-
-1. Update CI/deploy to preserve the current single-writer topology.
-2. Accept that CI will overwrite the manual topology and start per-server billing containers again.
+This preserves the current single-writer SQLite topology during `main` deploys.
 
 Do not reintroduce LiteFS/Consul until the servers can communicate on the required Consul/LiteFS ports. Previous checks showed Consul port `8301` was blocked between the Sarvesh servers.
 

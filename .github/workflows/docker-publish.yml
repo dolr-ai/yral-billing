@@ -79,8 +79,10 @@ jobs:
       matrix:
         server:
           - name: sarvesh-1
+            role: primary
             ip_secret: YRAL_BILLING_SARVESH_1_SERVER_IP_ADDR
           - name: sarvesh-2
+            role: edge
             ip_secret: YRAL_BILLING_SARVESH_2_SERVER_IP_ADDR
     
     steps:
@@ -98,7 +100,10 @@ jobs:
 
       - name: Deploy to ${{ matrix.server.name }}
         env:
+          SERVER_NAME: ${{ matrix.server.name }}
+          SERVER_ROLE: ${{ matrix.server.role }}
           SERVER_IP: ${{ secrets[matrix.server.ip_secret] }}
+          PRIMARY_SERVER_IP: ${{ secrets.YRAL_BILLING_SARVESH_1_SERVER_IP_ADDR }}
           SERVER_USER: ${{ secrets.YRAL_BILLING_DEPLOY_USER }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           BACKEND_ADMIN_SECRET_KEY: ${{ secrets.CANISTER_ADMIN_PRIVATE_SECRET_KEY }}
@@ -110,32 +115,34 @@ jobs:
           APP_ENV: production
 
         run: |
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} "mkdir -p ~/yral-billing"
+          if [ "${SERVER_ROLE}" = "primary" ]; then
+            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} "mkdir -p ~/yral-billing"
 
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes docker-compose.yml ${SERVER_USER}@${SERVER_IP}:~/yral-billing/
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes litestream.yml ${SERVER_USER}@${SERVER_IP}:~/yral-billing/
-          
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} << ENDSSH
-            cd ~/yral-billing
+            scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes docker-compose.yml ${SERVER_USER}@${SERVER_IP}:~/yral-billing/
+            scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes litestream.yml ${SERVER_USER}@${SERVER_IP}:~/yral-billing/
 
-            export GOOGLE_SERVICE_ACCOUNT_JSON='${GOOGLE_SERVICE_ACCOUNT_JSON}'
-            export BACKEND_ADMIN_SECRET_KEY='${BACKEND_ADMIN_SECRET_KEY}'
-            export LITESTREAM_ACCESS_KEY_ID='${LITESTREAM_ACCESS_KEY_ID}'
-            export LITESTREAM_SECRET_ACCESS_KEY='${LITESTREAM_SECRET_ACCESS_KEY}'
-            export LITESTREAM_S3_BUCKET='${LITESTREAM_S3_BUCKET}'
-            export SENTRY_DSN='${SENTRY_DSN}'
-            export SENTRY_TRACES_SAMPLE_RATE='${SENTRY_TRACES_SAMPLE_RATE}'
-            export APP_ENV='${APP_ENV}'
+            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} << ENDSSH
+              set -euo pipefail
+              cd ~/yral-billing
 
-            docker network inspect low_traffic_1 >/dev/null 2>&1 || docker network create low_traffic_1
-            docker pull ghcr.io/dolr-ai/yral-billing:latest
-            mkdir -p data
-            docker run --rm --user root -v "\$PWD/data:/data" ghcr.io/dolr-ai/yral-billing:latest sh -c 'chmod 0777 /data'
-            docker compose up -d
-            docker compose ps
+              export GOOGLE_SERVICE_ACCOUNT_JSON='${GOOGLE_SERVICE_ACCOUNT_JSON}'
+              export BACKEND_ADMIN_SECRET_KEY='${BACKEND_ADMIN_SECRET_KEY}'
+              export LITESTREAM_ACCESS_KEY_ID='${LITESTREAM_ACCESS_KEY_ID}'
+              export LITESTREAM_SECRET_ACCESS_KEY='${LITESTREAM_SECRET_ACCESS_KEY}'
+              export LITESTREAM_S3_BUCKET='${LITESTREAM_S3_BUCKET}'
+              export SENTRY_DSN='${SENTRY_DSN}'
+              export SENTRY_TRACES_SAMPLE_RATE='${SENTRY_TRACES_SAMPLE_RATE}'
+              export APP_ENV='${APP_ENV}'
 
-            if docker ps --format '{{.Names}}' | grep -qx yral-proxy; then
-              docker network connect low_traffic_1 yral-proxy 2>/dev/null || true
+              docker network inspect low_traffic_1 >/dev/null 2>&1 || docker network create low_traffic_1
+              docker pull ghcr.io/dolr-ai/yral-billing:latest
+              mkdir -p data
+              docker run --rm --user root -v "\$PWD/data:/data" ghcr.io/dolr-ai/yral-billing:latest sh -c 'chmod 0777 /data'
+              docker compose up -d
+              docker compose ps
+
+              if docker ps --format '{{.Names}}' | grep -qx yral-proxy; then
+                docker network connect low_traffic_1 yral-proxy 2>/dev/null || true
           python3 <<'PY'
           from pathlib import Path
 
@@ -143,7 +150,11 @@ jobs:
           block = [
               "billing.sarvesh.yral.com:443 {",
               "    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem",
-              "    reverse_proxy yral-billing:3000",
+              "    reverse_proxy yral-billing:3000 {",
+              "        health_uri /health",
+              "        health_interval 30s",
+              "        health_timeout 10s",
+              "    }",
               "}",
           ]
           lines = path.read_text().splitlines()
@@ -171,10 +182,66 @@ jobs:
           output.extend(["", *block])
           path.write_text("\n".join(output) + "\n")
           PY
-              docker restart yral-proxy
-              docker exec yral-proxy caddy validate --config /etc/caddy/Caddyfile
-            fi
+                docker exec yral-proxy caddy validate --config /etc/caddy/Caddyfile
+                docker restart yral-proxy
+              fi
           ENDSSH
+          else
+            ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} << ENDSSH
+              set -euo pipefail
+              export PRIMARY_SERVER_IP='${PRIMARY_SERVER_IP}'
+
+              docker rm -f yral-billing yral-billing-litestream >/dev/null 2>&1 || true
+
+              if docker ps --format '{{.Names}}' | grep -qx yral-proxy; then
+          python3 <<'PY'
+          import os
+          from pathlib import Path
+
+          primary_server_ip = os.environ["PRIMARY_SERVER_IP"]
+          path = Path("/home/yral-deploy/yral-proxy/Caddyfile")
+          block = [
+              "billing.sarvesh.yral.com:443 {",
+              "    tls /etc/caddy/certs/fullchain.pem /etc/caddy/certs/privkey.pem",
+              f"    reverse_proxy https://{primary_server_ip} {{",
+              "        header_up Host billing.sarvesh.yral.com",
+              "        transport http {",
+              "            tls_server_name billing.sarvesh.yral.com",
+              "            tls_insecure_skip_verify",
+              "        }",
+              "    }",
+              "}",
+          ]
+          lines = path.read_text().splitlines()
+          output = []
+          i = 0
+
+          while i < len(lines):
+              if lines[i].strip() == "billing.sarvesh.yral.com:443 {":
+                  depth = 0
+                  while i < len(lines):
+                      depth += lines[i].count("{") - lines[i].count("}")
+                      i += 1
+                      if depth <= 0:
+                          break
+                  while output and output[-1].strip() == "":
+                      output.pop()
+                  continue
+
+              output.append(lines[i])
+              i += 1
+
+          while output and output[-1].strip() == "":
+              output.pop()
+
+          output.extend(["", *block])
+          path.write_text("\n".join(output) + "\n")
+          PY
+                docker exec yral-proxy caddy validate --config /etc/caddy/Caddyfile
+                docker restart yral-proxy
+              fi
+          ENDSSH
+          fi
 
       - name: Cleanup
         if: always()
