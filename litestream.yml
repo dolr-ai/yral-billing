@@ -3,7 +3,7 @@ dbs:
     replicas:
       - type: s3
         bucket: ${LITESTREAM_S3_BUCKET}
-        path: billing-db
+        path: billing-db-sarvesh-1
         endpoint: ${LITESTREAM_S3_ENDPOINT}
         access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
         secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
