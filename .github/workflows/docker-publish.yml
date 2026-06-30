@@ -107,6 +107,11 @@ jobs:
           SERVER_USER: ${{ secrets.YRAL_BILLING_DEPLOY_USER }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           BACKEND_ADMIN_SECRET_KEY: ${{ secrets.CANISTER_ADMIN_PRIVATE_SECRET_KEY }}
+          APPLE_ISSUER_ID: ${{ secrets.APPLE_ISSUER_ID }}
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          APPLE_BUNDLE_ID: ${{ secrets.APPLE_BUNDLE_ID }}
+          APPLE_PRIVATE_KEY: ${{ secrets.APPLE_PRIVATE_KEY }}
+          APPLE_DEFAULT_ENVIRONMENT: ${{ vars.APPLE_DEFAULT_ENVIRONMENT || 'production' }}
           LITESTREAM_ACCESS_KEY_ID: ${{ secrets.LITESTREAM_BACKUP_OBJECT_STORAGE_ACCESS_KEY }}
           LITESTREAM_SECRET_ACCESS_KEY: ${{ secrets.LITESTREAM_BACKUP_OBJECT_STORAGE_SECRET_KEY }}
           LITESTREAM_S3_BUCKET: ${{ secrets.BUCKET_NAME_LITE_STREAM_BACKUP }}
@@ -116,6 +121,8 @@ jobs:
 
         run: |
           if [ "${SERVER_ROLE}" = "primary" ]; then
+            APPLE_PRIVATE_KEY_B64="$(printf '%s' "${APPLE_PRIVATE_KEY}" | base64 -w 0)"
+
             ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes ${SERVER_USER}@${SERVER_IP} "mkdir -p ~/yral-billing"
 
             scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o BatchMode=yes docker-compose.yml ${SERVER_USER}@${SERVER_IP}:~/yral-billing/
@@ -127,6 +134,11 @@ jobs:
 
               export GOOGLE_SERVICE_ACCOUNT_JSON='${GOOGLE_SERVICE_ACCOUNT_JSON}'
               export BACKEND_ADMIN_SECRET_KEY='${BACKEND_ADMIN_SECRET_KEY}'
+              export APPLE_ISSUER_ID='${APPLE_ISSUER_ID}'
+              export APPLE_KEY_ID='${APPLE_KEY_ID}'
+              export APPLE_BUNDLE_ID='${APPLE_BUNDLE_ID}'
+              export APPLE_PRIVATE_KEY="\$(printf '%s' '${APPLE_PRIVATE_KEY_B64}' | base64 -d)"
+              export APPLE_DEFAULT_ENVIRONMENT='${APPLE_DEFAULT_ENVIRONMENT}'
               export LITESTREAM_ACCESS_KEY_ID='${LITESTREAM_ACCESS_KEY_ID}'
               export LITESTREAM_SECRET_ACCESS_KEY='${LITESTREAM_SECRET_ACCESS_KEY}'
               export LITESTREAM_S3_BUCKET='${LITESTREAM_S3_BUCKET}'

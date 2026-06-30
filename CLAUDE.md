@@ -87,6 +87,11 @@ Runtime env used by billing:
 - `PORT`: defaults to `3000`.
 - `APP_ENV`: usually `production`.
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: Google service account JSON for Google Play API access.
+- `APPLE_ISSUER_ID`: App Store Connect issuer ID for Apple purchase verification.
+- `APPLE_KEY_ID`: App Store Connect API key ID.
+- `APPLE_BUNDLE_ID`: iOS app bundle ID used for App Store Server API calls.
+- `APPLE_PRIVATE_KEY`: App Store Connect `.p8` private key contents.
+- `APPLE_DEFAULT_ENVIRONMENT`: Apple API environment, normally `production`.
 - `BACKEND_ADMIN_SECRET_KEY`: IC admin identity private key.
 - `SENTRY_DSN`: Sentry DSN.
 - `SENTRY_TRACES_SAMPLE_RATE`: optional, defaults to `1.0`.
