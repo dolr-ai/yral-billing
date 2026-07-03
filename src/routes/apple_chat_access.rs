@@ -2,7 +2,7 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use diesel::prelude::*;
 
 use crate::{
-    consts::BOT_SUBSCRIPTION_REWARD_PAISE,
+    consts::{BOT_SUBSCRIPTION_REWARD_PAISE, CHAT_ACCESS_PRODUCT_IDS},
     error::{AppError, AppResult},
     model::{AppleAppAccountToken, BotChatAccess, Transaction},
     routes::apple_billing_helpers::{
@@ -65,7 +65,7 @@ fn get_or_create_app_account_token(
     Ok(new_mapping.app_account_token)
 }
 
-fn resolve_app_account_token(
+pub(crate) fn resolve_app_account_token(
     conn: &mut SqliteConnection,
     app_account_token_param: &str,
 ) -> AppResult<String> {
@@ -109,6 +109,13 @@ async fn process_grant_apple_chat_access(
     payload: &GrantAppleChatAccessRequest,
 ) -> AppResult<()> {
     use crate::schema::bot_chat_access::dsl::*;
+
+    if !CHAT_ACCESS_PRODUCT_IDS.contains(&payload.product_id.as_str()) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid product id for chat access: {}",
+            payload.product_id
+        )));
+    }
 
     let stored_purchase_token = payload.transaction_id.clone();
     let existing: Option<BotChatAccess> = bot_chat_access
@@ -254,17 +261,31 @@ async fn process_apple_server_notification(
     let stored_purchase_token = transaction.transaction_id;
 
     use crate::schema::bot_chat_access::dsl;
+    use crate::schema::image_access::dsl as image_dsl;
     let mut conn = app_state.get_db_connection()?;
     let now = chrono::Utc::now().naive_utc();
 
+    // A transaction id maps to exactly one purchase, so at most one of these
+    // updates matches a row; running both unconditionally is safe.
     diesel::update(
         dsl::bot_chat_access
             .filter(dsl::purchase_source.eq(PurchaseSource::Apple))
-            .filter(dsl::purchase_token.eq(stored_purchase_token)),
+            .filter(dsl::purchase_token.eq(&stored_purchase_token)),
     )
     .set((
         dsl::status.eq(BotChatAccessStatus::Canceled),
         dsl::updated_at.eq(now),
+    ))
+    .execute(&mut conn)?;
+
+    diesel::update(
+        image_dsl::image_access
+            .filter(image_dsl::purchase_source.eq(PurchaseSource::Apple))
+            .filter(image_dsl::purchase_token.eq(&stored_purchase_token)),
+    )
+    .set((
+        image_dsl::status.eq(BotChatAccessStatus::Canceled),
+        image_dsl::updated_at.eq(now),
     ))
     .execute(&mut conn)?;
 

@@ -40,6 +40,46 @@ impl BotChatAccess {
     }
 }
 
+/// Per-image unlock purchased with the `image_unlock` consumable.
+/// Access is permanent (no expiry); `BotChatAccessStatus::Expired` is never
+/// written for these rows.
+#[derive(Queryable, Insertable, Identifiable, Debug, Clone)]
+#[diesel(table_name = crate::schema::image_access)]
+pub struct ImageAccess {
+    pub id: String,
+    pub purchase_source: PurchaseSource,
+    pub purchase_token: String,
+    pub user_id: String,
+    pub bot_id: String,
+    pub image_id: String,
+    pub status: BotChatAccessStatus,
+    pub granted_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+impl ImageAccess {
+    pub fn new(
+        purchase_source: PurchaseSource,
+        purchase_token: String,
+        user_id: String,
+        bot_id: String,
+        image_id: String,
+    ) -> Self {
+        let now = chrono::Utc::now().naive_utc();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            purchase_source,
+            purchase_token,
+            user_id,
+            bot_id,
+            image_id,
+            status: BotChatAccessStatus::ConsumePending,
+            granted_at: now,
+            updated_at: now,
+        }
+    }
+}
+
 #[derive(Queryable, Insertable, Identifiable, Debug, Clone)]
 #[diesel(table_name = crate::schema::purchase_tokens)]
 pub struct PurchaseToken {

@@ -1,46 +1,57 @@
-use crate::consts::{BOT_SUBSCRIPTION_REWARD_PAISE, CHAT_ACCESS_PRODUCT_IDS};
+use crate::consts::{IMAGE_UNLOCK_PRODUCT_ID, IMAGE_UNLOCK_REWARD_PAISE};
 use crate::error::{AppError, AppResult};
-use crate::model::{BotChatAccess, Transaction};
+use crate::model::{ImageAccess, Transaction};
 use crate::routes::goole_play_billing_helpers::{
     consume_google_play_product, fetch_google_play_product_details,
 };
 use crate::types::{
     google_play_consumption_state, google_play_product_purchase_state, ApiResponse,
-    BotChatAccessStatus, ChatAccessResponse, EmptyData, GrantChatAccessRequest, PurchaseSource,
-    TransactionType,
+    BotChatAccessStatus, EmptyData, GrantImageAccessRequest, ImageAccessCheckBatchRequest,
+    ImageAccessCheckBatchResponse, PurchaseSource, TransactionType,
 };
 use crate::AppState;
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
 use diesel::prelude::*;
-use serde::Deserialize;
+use std::collections::HashMap;
 
-#[derive(Deserialize)]
-pub struct CheckChatAccessQuery {
-    pub user_id: String,
-    pub bot_id: String,
+pub const MAX_IMAGE_ID_LEN: usize = 512;
+pub const MAX_CHECK_BATCH_IDS: usize = 200;
+
+pub(crate) fn validate_image_unlock_request(product_id: &str, image_id: &str) -> AppResult<()> {
+    if product_id != IMAGE_UNLOCK_PRODUCT_ID {
+        return Err(AppError::BadRequest(format!(
+            "Invalid product id for image unlock: {product_id}"
+        )));
+    }
+    if image_id.is_empty() || image_id.len() > MAX_IMAGE_ID_LEN {
+        return Err(AppError::BadRequest(format!(
+            "image_id must be 1..={MAX_IMAGE_ID_LEN} characters"
+        )));
+    }
+    Ok(())
 }
 
 #[utoipa::path(
     post,
-    path = "/google/chat-access/grant",
-    request_body = GrantChatAccessRequest,
+    path = "/google/image-access/grant",
+    request_body = GrantImageAccessRequest,
     responses(
-        (status = 200, description = "Chat access granted successfully", body = ApiResponse<EmptyData>),
+        (status = 200, description = "Image access granted successfully", body = ApiResponse<EmptyData>),
         (status = 400, description = "Invalid or already-used purchase token", body = ApiResponse<EmptyData>),
         (status = 500, description = "Internal server error", body = ApiResponse<EmptyData>)
     ),
-    tag = "Chat Access"
+    tag = "Image Access"
 )]
-pub async fn grant_chat_access(
+pub async fn grant_image_access(
     State(app_state): State<AppState>,
-    Json(payload): Json<GrantChatAccessRequest>,
+    Json(payload): Json<GrantImageAccessRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let mut conn = app_state.get_db_connection()?;
 
-    process_grant_chat_access(&mut conn, &app_state, &payload).await?;
+    process_grant_image_access(&mut conn, &app_state, &payload).await?;
 
     Ok((
         StatusCode::OK,
@@ -48,21 +59,16 @@ pub async fn grant_chat_access(
     ))
 }
 
-async fn process_grant_chat_access(
+async fn process_grant_image_access(
     conn: &mut SqliteConnection,
     app_state: &AppState,
-    payload: &GrantChatAccessRequest,
+    payload: &GrantImageAccessRequest,
 ) -> AppResult<()> {
-    use crate::schema::bot_chat_access::dsl::*;
+    use crate::schema::image_access::dsl::*;
 
-    if !CHAT_ACCESS_PRODUCT_IDS.contains(&payload.product_id.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "Invalid product id for chat access: {}",
-            payload.product_id
-        )));
-    }
+    validate_image_unlock_request(&payload.product_id, &payload.image_id)?;
 
-    let existing: Option<BotChatAccess> = bot_chat_access
+    let existing: Option<ImageAccess> = image_access
         .filter(purchase_source.eq(PurchaseSource::Google))
         .filter(purchase_token.eq(&payload.purchase_token))
         .first(conn)
@@ -106,17 +112,15 @@ async fn process_grant_chat_access(
                 .obfuscated_external_account_id
                 .ok_or(AppError::ExternalAccountIdentifiersMissing)?;
 
-            let access_expires_at = chrono::Utc::now().naive_utc() + chrono::Duration::hours(24);
-
-            let new_grant = BotChatAccess::new(
+            let new_grant = ImageAccess::new(
                 PurchaseSource::Google,
                 payload.purchase_token.clone(),
                 user_id_str,
                 payload.bot_id.clone(),
-                access_expires_at,
+                payload.image_id.clone(),
             );
 
-            diesel::insert_into(bot_chat_access)
+            diesel::insert_into(image_access)
                 .values(&new_grant)
                 .execute(conn)?;
 
@@ -129,14 +133,14 @@ async fn process_grant_chat_access(
             .await?;
 
             let now = chrono::Utc::now().naive_utc();
-            diesel::update(bot_chat_access.filter(id.eq(&new_grant.id)))
+            diesel::update(image_access.filter(id.eq(&new_grant.id)))
                 .set((status.eq(BotChatAccessStatus::Active), updated_at.eq(now)))
                 .execute(conn)?;
 
             let reward = Transaction::new(
                 new_grant.user_id.clone(),
-                TransactionType::BotSubscriptionReward,
-                BOT_SUBSCRIPTION_REWARD_PAISE,
+                TransactionType::ImageUnlockReward,
+                IMAGE_UNLOCK_REWARD_PAISE,
                 payload.bot_id.clone(),
                 PurchaseSource::Google,
                 payload.purchase_token.clone(),
@@ -148,10 +152,10 @@ async fn process_grant_chat_access(
             Ok(())
         }
 
-        // ── Token reused for a different bot: always reject ──
-        Some(grant) if grant.bot_id != payload.bot_id => Err(AppError::TokenAlreadyUsed),
+        // ── Token reused for a different image: always reject ──
+        Some(grant) if grant.image_id != payload.image_id => Err(AppError::TokenAlreadyUsed),
 
-        // ── Same token, same bot: apply state machine ──
+        // ── Same token, same image: apply state machine ──
         Some(grant) => match grant.status {
             // Consume was attempted before but not confirmed — resume from where we left off
             BotChatAccessStatus::ConsumePending => {
@@ -194,15 +198,15 @@ async fn process_grant_chat_access(
                         .await?;
                     }
 
-                    Some(state) => {
+                    Some(state_str) => {
                         return Err(AppError::BadRequest(format!(
-                            "Unexpected consumption state: {state}"
+                            "Unexpected consumption state: {state_str}"
                         )));
                     }
                 }
 
                 let now = chrono::Utc::now().naive_utc();
-                diesel::update(bot_chat_access.filter(id.eq(&grant.id)))
+                diesel::update(image_access.filter(id.eq(&grant.id)))
                     .set((status.eq(BotChatAccessStatus::Active), updated_at.eq(now)))
                     .execute(conn)?;
 
@@ -220,8 +224,8 @@ async fn process_grant_chat_access(
                 if !reward_exists {
                     let reward = Transaction::new(
                         grant.user_id.clone(),
-                        TransactionType::BotSubscriptionReward,
-                        BOT_SUBSCRIPTION_REWARD_PAISE,
+                        TransactionType::ImageUnlockReward,
+                        IMAGE_UNLOCK_REWARD_PAISE,
                         payload.bot_id.clone(),
                         PurchaseSource::Google,
                         payload.purchase_token.clone(),
@@ -234,71 +238,73 @@ async fn process_grant_chat_access(
                 Ok(())
             }
 
-            // Access is live and within the window — idempotent success
-            BotChatAccessStatus::Active if grant.expires_at > chrono::Utc::now().naive_utc() => {
-                Ok(())
-            }
-
-            // Access window has passed — token is spent, new purchase required
-            BotChatAccessStatus::Active => Err(AppError::TokenExpired),
+            // Access is permanent — idempotent success
+            BotChatAccessStatus::Active => Ok(()),
 
             // Token was canceled (e.g. refund) — terminal state
             BotChatAccessStatus::Canceled => Err(AppError::TokenAlreadyUsed),
 
-            // Expired status set explicitly (e.g. by a background job) — terminal state
+            // Never written for image rows; defensive terminal state
             BotChatAccessStatus::Expired => Err(AppError::TokenExpired),
         },
     }
 }
 
 #[utoipa::path(
-    get,
-    path = "/google/chat-access/check",
-    params(
-        ("user_id" = String, Query, description = "User ID to check access for"),
-        ("bot_id" = String, Query, description = "Bot ID to check access for"),
-    ),
+    post,
+    path = "/image-access/check-batch",
+    request_body = ImageAccessCheckBatchRequest,
     responses(
-        (status = 200, description = "Access check result", body = ApiResponse<ChatAccessResponse>),
+        (status = 200, description = "Per-image access map", body = ApiResponse<ImageAccessCheckBatchResponse>),
+        (status = 400, description = "Empty or oversized image id list", body = ApiResponse<EmptyData>),
         (status = 500, description = "Internal server error", body = ApiResponse<EmptyData>)
     ),
-    tag = "Chat Access"
+    tag = "Image Access"
 )]
-pub async fn check_chat_access(
+pub async fn check_image_access_batch(
     State(app_state): State<AppState>,
-    Query(params): Query<CheckChatAccessQuery>,
+    Json(payload): Json<ImageAccessCheckBatchRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    use crate::schema::bot_chat_access::dsl::*;
+    use crate::schema::image_access::dsl::*;
+
+    if payload.image_ids.is_empty() {
+        return Err(AppError::BadRequest("image_ids must not be empty".into()));
+    }
+
+    let mut requested: Vec<String> = payload.image_ids.clone();
+    requested.sort();
+    requested.dedup();
+
+    if requested.len() > MAX_CHECK_BATCH_IDS {
+        return Err(AppError::BadRequest(format!(
+            "image_ids must contain at most {MAX_CHECK_BATCH_IDS} unique ids"
+        )));
+    }
 
     let mut conn = app_state.get_db_connection()?;
 
-    let now = chrono::Utc::now().naive_utc();
-
-    let grant: Option<BotChatAccess> = bot_chat_access
-        .filter(user_id.eq(&params.user_id))
-        .filter(bot_id.eq(&params.bot_id))
+    // Source-agnostic: a purchase from either store unlocks the image everywhere.
+    let unlocked: Vec<String> = image_access
+        .filter(user_id.eq(&payload.user_id))
         .filter(status.eq(BotChatAccessStatus::Active))
-        .filter(expires_at.gt(now))
-        .order(expires_at.desc())
-        .first(&mut conn)
-        .optional()?;
+        .filter(image_id.eq_any(&requested))
+        .select(image_id)
+        .load(&mut conn)?;
 
-    let response = match grant {
-        Some(g) => ChatAccessResponse {
-            has_access: true,
-            expires_at: Some(
-                chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
-                    g.expires_at,
-                    chrono::Utc,
-                )
-                .to_rfc3339(),
-            ),
-        },
-        None => ChatAccessResponse {
-            has_access: false,
-            expires_at: None,
-        },
-    };
+    let unlocked: std::collections::HashSet<String> = unlocked.into_iter().collect();
 
-    Ok((StatusCode::OK, Json(ApiResponse::success(response))))
+    let access: HashMap<String, bool> = requested
+        .into_iter()
+        .map(|img| {
+            let has = unlocked.contains(&img);
+            (img, has)
+        })
+        .collect();
+
+    Ok((
+        StatusCode::OK,
+        Json(ApiResponse::success(ImageAccessCheckBatchResponse {
+            access,
+        })),
+    ))
 }

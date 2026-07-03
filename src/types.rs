@@ -4,6 +4,7 @@ use diesel::sql_types::Text;
 use diesel::sqlite::Sqlite;
 use diesel::{AsExpression, FromSqlRow};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 
 /// Common API response structure for all endpoints
@@ -477,6 +478,20 @@ pub struct GrantChatAccessRequest {
     pub bot_id: String,
 }
 
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GrantImageAccessRequest {
+    /// Android package name
+    pub package_name: String,
+    /// One-time product ID from Google Play (must be the image unlock product)
+    pub product_id: String,
+    /// Purchase token from Google Play
+    pub purchase_token: String,
+    /// Opaque image identifier, e.g. "<message_id>:<url-or-index>"
+    pub image_id: String,
+    /// Bot/influencer ID whose chat contains the image
+    pub bot_id: String,
+}
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AppleEnvironment {
@@ -512,6 +527,20 @@ pub struct GrantAppleChatAccessRequest {
     /// In-app purchase product ID from App Store Connect
     pub product_id: String,
     /// Bot/influencer ID to grant access to
+    pub bot_id: String,
+    /// Optional Apple API environment. Defaults to APPLE_DEFAULT_ENVIRONMENT or production.
+    pub environment: Option<AppleEnvironment>,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GrantAppleImageAccessRequest {
+    /// Apple transaction identifier from StoreKit
+    pub transaction_id: String,
+    /// In-app purchase product ID from App Store Connect (must be the image unlock product)
+    pub product_id: String,
+    /// Opaque image identifier, e.g. "<message_id>:<url-or-index>"
+    pub image_id: String,
+    /// Bot/influencer ID whose chat contains the image
     pub bot_id: String,
     /// Optional Apple API environment. Defaults to APPLE_DEFAULT_ENVIRONMENT or production.
     pub environment: Option<AppleEnvironment>,
@@ -581,6 +610,20 @@ pub struct ChatAccessResponse {
     pub expires_at: Option<String>,
 }
 
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ImageAccessCheckBatchRequest {
+    /// YRAL user ID or principal
+    pub user_id: String,
+    /// Image identifiers to check (max 200)
+    pub image_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct ImageAccessCheckBatchResponse {
+    /// image_id -> whether the user has unlocked it
+    pub access: HashMap<String, bool>,
+}
+
 // Transaction types
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
@@ -588,6 +631,7 @@ pub struct ChatAccessResponse {
 #[diesel(sql_type = Text)]
 pub enum TransactionType {
     BotSubscriptionReward,
+    ImageUnlockReward,
 }
 
 impl ToSql<Text, Sqlite> for TransactionType {
@@ -595,6 +639,9 @@ impl ToSql<Text, Sqlite> for TransactionType {
         match *self {
             TransactionType::BotSubscriptionReward => {
                 <&str as ToSql<Text, Sqlite>>::to_sql(&"bot_subscription_reward", out)
+            }
+            TransactionType::ImageUnlockReward => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"image_unlock_reward", out)
             }
         }
     }
@@ -607,6 +654,7 @@ impl FromSql<Text, Sqlite> for TransactionType {
         let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
         match s.as_str() {
             "bot_subscription_reward" => Ok(TransactionType::BotSubscriptionReward),
+            "image_unlock_reward" => Ok(TransactionType::ImageUnlockReward),
             _ => Err("Invalid transaction type".into()),
         }
     }
