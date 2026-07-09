@@ -1,4 +1,7 @@
-use crate::types::{BotChatAccessStatus, PurchaseSource, PurchaseTokenStatus, TransactionType};
+use crate::types::{
+    BotChatAccessStatus, BotSubscriptionStatus, PurchaseSource, PurchaseTokenStatus,
+    TransactionType,
+};
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use uuid::Uuid;
@@ -76,6 +79,49 @@ impl ImageAccess {
             status: BotChatAccessStatus::ConsumePending,
             granted_at: now,
             updated_at: now,
+        }
+    }
+}
+
+/// Per-bot auto-renewable subscription. `purchase_token` holds the Google
+/// purchase token or the Apple originalTransactionId — the stable key across
+/// renewals. Expiry always comes from the store, never computed locally.
+#[derive(Queryable, Insertable, Identifiable, Debug, Clone)]
+#[diesel(table_name = crate::schema::bot_subscriptions)]
+pub struct BotSubscription {
+    pub id: String,
+    pub purchase_source: PurchaseSource,
+    pub purchase_token: String,
+    pub user_id: String,
+    pub bot_id: String,
+    pub product_id: String,
+    pub status: BotSubscriptionStatus,
+    pub started_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
+}
+
+impl BotSubscription {
+    pub fn new(
+        purchase_source: PurchaseSource,
+        purchase_token: String,
+        user_id: String,
+        bot_id: String,
+        product_id: String,
+        expires_at: NaiveDateTime,
+    ) -> Self {
+        let now = chrono::Utc::now().naive_utc();
+        Self {
+            id: Uuid::new_v4().to_string(),
+            purchase_source,
+            purchase_token,
+            user_id,
+            bot_id,
+            product_id,
+            status: BotSubscriptionStatus::Active,
+            started_at: now,
+            updated_at: now,
+            expires_at,
         }
     }
 }

@@ -376,6 +376,58 @@ impl FromSql<Text, Sqlite> for BotChatAccessStatus {
     }
 }
 
+/// Status of a per-bot auto-renewable subscription.
+///
+/// Unlike `BotChatAccessStatus` there is no consume step (subscriptions are
+/// acknowledged, which is retry-safe), and `OnHold` must be recoverable:
+/// Google SUBSCRIPTION_RECOVERED / Apple billing-retry success flips it back
+/// to `Active`. Grace period keeps `Active` — the user retains access and the
+/// store extends the expiry.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
+)]
+#[diesel(sql_type = Text)]
+pub enum BotSubscriptionStatus {
+    /// Subscription is paid up; access is valid until `expires_at`
+    Active,
+    /// Billing failed and any grace period lapsed; recoverable if payment succeeds
+    OnHold,
+    /// Refunded or revoked by the store — terminal
+    Canceled,
+    /// Subscription ended without renewal — terminal
+    Expired,
+}
+
+impl ToSql<Text, Sqlite> for BotSubscriptionStatus {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
+        match *self {
+            BotSubscriptionStatus::Active => <&str as ToSql<Text, Sqlite>>::to_sql(&"active", out),
+            BotSubscriptionStatus::OnHold => <&str as ToSql<Text, Sqlite>>::to_sql(&"on_hold", out),
+            BotSubscriptionStatus::Canceled => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"canceled", out)
+            }
+            BotSubscriptionStatus::Expired => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"expired", out)
+            }
+        }
+    }
+}
+
+impl FromSql<Text, Sqlite> for BotSubscriptionStatus {
+    fn from_sql(
+        bytes: <Sqlite as diesel::backend::Backend>::RawValue<'_>,
+    ) -> deserialize::Result<Self> {
+        let s = <String as FromSql<Text, Sqlite>>::from_sql(bytes)?;
+        match s.as_str() {
+            "active" => Ok(BotSubscriptionStatus::Active),
+            "on_hold" => Ok(BotSubscriptionStatus::OnHold),
+            "canceled" => Ok(BotSubscriptionStatus::Canceled),
+            "expired" => Ok(BotSubscriptionStatus::Expired),
+            _ => Err("Invalid bot subscription status".into()),
+        }
+    }
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
 )]
@@ -616,6 +668,10 @@ pub struct ImageAccessCheckBatchRequest {
     pub user_id: String,
     /// Image identifiers to check (max 200)
     pub image_ids: Vec<String>,
+    /// Optional bot/influencer ID. When set and the user has an active
+    /// subscription for that bot, all requested images are unlocked.
+    #[serde(default)]
+    pub bot_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
@@ -624,14 +680,54 @@ pub struct ImageAccessCheckBatchResponse {
     pub access: HashMap<String, bool>,
 }
 
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct VerifyBotSubscriptionRequest {
+    /// Android package name
+    pub package_name: String,
+    /// Per-bot subscription product ID from Google Play (e.g. "bot_sub_<bot>")
+    pub product_id: String,
+    /// Subscription purchase token from Google Play
+    pub purchase_token: String,
+    /// Bot/influencer ID the subscription applies to
+    pub bot_id: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct GrantAppleBotSubscriptionRequest {
+    /// Apple transaction identifier from StoreKit
+    pub transaction_id: String,
+    /// Per-bot subscription product ID from App Store Connect (e.g. "bot_sub_<bot>")
+    pub product_id: String,
+    /// Bot/influencer ID the subscription applies to
+    pub bot_id: String,
+    /// Optional Apple API environment. Defaults to APPLE_DEFAULT_ENVIRONMENT or production.
+    pub environment: Option<AppleEnvironment>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BotSubscriptionCheckResponse {
+    /// Whether the user currently has an active subscription for the bot
+    pub subscribed: bool,
+    /// Status of the newest subscription row, if any
+    pub status: Option<BotSubscriptionStatus>,
+    /// RFC3339 expiry of the newest subscription row, if any
+    pub expires_at: Option<String>,
+}
+
 // Transaction types
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, AsExpression, FromSqlRow, ToSchema,
 )]
 #[diesel(sql_type = Text)]
 pub enum TransactionType {
+    /// Legacy name: reward for the `daily_chat` one-time consumable, not the
+    /// auto-renewable bot subscription.
     BotSubscriptionReward,
     ImageUnlockReward,
+    /// First charge of a per-bot auto-renewable subscription
+    BotSubscriptionInitialReward,
+    /// Recurring charge of a per-bot auto-renewable subscription
+    BotSubscriptionRenewalReward,
 }
 
 impl ToSql<Text, Sqlite> for TransactionType {
@@ -642,6 +738,12 @@ impl ToSql<Text, Sqlite> for TransactionType {
             }
             TransactionType::ImageUnlockReward => {
                 <&str as ToSql<Text, Sqlite>>::to_sql(&"image_unlock_reward", out)
+            }
+            TransactionType::BotSubscriptionInitialReward => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"bot_subscription_initial_reward", out)
+            }
+            TransactionType::BotSubscriptionRenewalReward => {
+                <&str as ToSql<Text, Sqlite>>::to_sql(&"bot_subscription_renewal_reward", out)
             }
         }
     }
@@ -655,6 +757,8 @@ impl FromSql<Text, Sqlite> for TransactionType {
         match s.as_str() {
             "bot_subscription_reward" => Ok(TransactionType::BotSubscriptionReward),
             "image_unlock_reward" => Ok(TransactionType::ImageUnlockReward),
+            "bot_subscription_initial_reward" => Ok(TransactionType::BotSubscriptionInitialReward),
+            "bot_subscription_renewal_reward" => Ok(TransactionType::BotSubscriptionRenewalReward),
             _ => Err("Invalid transaction type".into()),
         }
     }

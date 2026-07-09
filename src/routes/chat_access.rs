@@ -272,6 +272,27 @@ pub async fn check_chat_access(
 
     let mut conn = app_state.get_db_connection()?;
 
+    // An active bot subscription makes chat free for that bot.
+    if let Some(sub) = crate::routes::bot_subscription::find_active_subscription(
+        &mut conn,
+        &params.user_id,
+        &params.bot_id,
+    )? {
+        return Ok((
+            StatusCode::OK,
+            Json(ApiResponse::success(ChatAccessResponse {
+                has_access: true,
+                expires_at: Some(
+                    chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(
+                        sub.expires_at,
+                        chrono::Utc,
+                    )
+                    .to_rfc3339(),
+                ),
+            })),
+        ));
+    }
+
     let now = chrono::Utc::now().naive_utc();
 
     let grant: Option<BotChatAccess> = bot_chat_access

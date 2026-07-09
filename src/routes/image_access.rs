@@ -283,6 +283,26 @@ pub async fn check_image_access_batch(
 
     let mut conn = app_state.get_db_connection()?;
 
+    // An active bot subscription makes every image in that bot's chat free.
+    if let Some(subscribed_bot_id) = payload.bot_id.as_deref() {
+        if crate::routes::bot_subscription::find_active_subscription(
+            &mut conn,
+            &payload.user_id,
+            subscribed_bot_id,
+        )?
+        .is_some()
+        {
+            let access: HashMap<String, bool> =
+                requested.into_iter().map(|img| (img, true)).collect();
+            return Ok((
+                StatusCode::OK,
+                Json(ApiResponse::success(ImageAccessCheckBatchResponse {
+                    access,
+                })),
+            ));
+        }
+    }
+
     // Source-agnostic: a purchase from either store unlocks the image everywhere.
     let unlocked: Vec<String> = image_access
         .filter(user_id.eq(&payload.user_id))

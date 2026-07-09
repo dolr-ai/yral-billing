@@ -16,3 +16,19 @@ pub const IMAGE_UNLOCK_PRODUCT_ID: &str = "mock-product-id";
 pub const CHAT_ACCESS_PRODUCT_IDS: &[&str] = &["daily_chat"];
 #[cfg(feature = "local")]
 pub const CHAT_ACCESS_PRODUCT_IDS: &[&str] = &["mock-product-id", "ios-chat-product"];
+
+// PLACEHOLDER amounts — confirm payout split with product before launch.
+pub const BOT_SUBSCRIPTION_INITIAL_REWARD_PAISE: i64 = 900; // ₹9 intro period
+pub const BOT_SUBSCRIPTION_RENEWAL_REWARD_PAISE: i64 = 6900; // ₹69/week renewal
+
+/// Per-bot auto-renewable subscription products share this prefix in
+/// Play Console / App Store Connect (one product per bot, e.g. "bot_sub_<bot>").
+/// The local mocks hardcode "mock-product-id", so the local build matches that.
+#[cfg(not(feature = "local"))]
+pub const BOT_SUBSCRIPTION_PRODUCT_PREFIX: &str = "bot_sub";
+#[cfg(feature = "local")]
+pub const BOT_SUBSCRIPTION_PRODUCT_PREFIX: &str = "mock-product-id";
+
+pub fn is_bot_subscription_product(product_id: &str) -> bool {
+    product_id.starts_with(BOT_SUBSCRIPTION_PRODUCT_PREFIX)
+}

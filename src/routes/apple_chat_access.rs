@@ -244,25 +244,38 @@ async fn process_apple_server_notification(
         return Ok(());
     }
 
+    let Some(data) = notification.data.as_ref() else {
+        return Ok(());
+    };
+    let Some(signed_transaction_info) = data.signed_transaction_info.as_deref() else {
+        return Ok(());
+    };
+
+    let transaction = decode_apple_transaction_jws(signed_transaction_info)?;
+
+    let mut conn = app_state.get_db_connection()?;
+
+    // Auto-renewable bot subscriptions have their own lifecycle handling
+    // (renewals, expiry, billing retry), keyed by originalTransactionId.
+    if crate::consts::is_bot_subscription_product(&transaction.product_id) {
+        crate::routes::bot_subscription::process_apple_bot_subscription_notification(
+            &mut conn,
+            &notification,
+            &transaction,
+        )?;
+    }
+
+    // Consumable grants (chat/image) only react to refunds and revocations.
     let should_cancel = matches!(notification.notification_type.as_str(), "REFUND" | "REVOKE");
 
     if !should_cancel {
         return Ok(());
     }
 
-    let Some(data) = notification.data else {
-        return Ok(());
-    };
-    let Some(signed_transaction_info) = data.signed_transaction_info else {
-        return Ok(());
-    };
-
-    let transaction = decode_apple_transaction_jws(&signed_transaction_info)?;
     let stored_purchase_token = transaction.transaction_id;
 
     use crate::schema::bot_chat_access::dsl;
     use crate::schema::image_access::dsl as image_dsl;
-    let mut conn = app_state.get_db_connection()?;
     let now = chrono::Utc::now().naive_utc();
 
     // A transaction id maps to exactly one purchase, so at most one of these

@@ -133,9 +133,11 @@ Database:
 
 Tables:
 
-- `purchase_tokens`: Google subscription purchase tokens and status.
+- `purchase_tokens`: Google subscription purchase tokens and status (account-wide Yral Pro plan).
 - `bot_chat_access`: bot access grants for Google and Apple purchases.
-- `transactions`: reward transactions, currently `bot_subscription_reward`.
+- `image_access`: permanent per-image unlocks from the `image_unlock` consumable.
+- `bot_subscriptions`: per-bot auto-renewable subscriptions. `purchase_token` holds the Google purchase token or Apple `originalTransactionId` (stable across renewals). Expiry always comes from the store.
+- `transactions`: reward transactions (`bot_subscription_reward` = legacy daily_chat reward, `image_unlock_reward`, `bot_subscription_initial_reward`, `bot_subscription_renewal_reward`). Subscription rewards store an order-scoped id (Google `latestOrderId` / Apple `transactionId`) in `purchase_token` so renewals dedup.
 - `apple_app_account_tokens`: stable StoreKit `appAccountToken` UUIDs mapped to YRAL user IDs.
 
 Models:
@@ -148,8 +150,9 @@ Types:
 - Important enums:
   - `PurchaseTokenStatus`: `pending`, `access_granted`, `expired`
   - `BotChatAccessStatus`: `consume_pending`, `active`, `canceled`, `expired`
+  - `BotSubscriptionStatus`: `active`, `on_hold`, `canceled`, `expired` (`on_hold` is recoverable)
   - `PurchaseSource`: `google`, `apple`
-  - `TransactionType`: `bot_subscription_reward`
+  - `TransactionType`: `bot_subscription_reward`, `image_unlock_reward`, `bot_subscription_initial_reward`, `bot_subscription_renewal_reward`
 
 Auth:
 
@@ -175,7 +178,11 @@ Routes:
 - `GET /google/chat-access/check`: checks active bot chat access.
 - `POST /apple/app-account-token`: creates or returns stable Apple `appAccountToken` for a user.
 - `POST /apple/chat-access/grant`: verifies Apple transaction and grants chat access.
-- `POST /apple/server-notifications`: handles App Store server notifications.
+- `POST /apple/server-notifications`: handles App Store server notifications (consumable refunds plus bot-subscription lifecycle: SUBSCRIBED, DID_RENEW, DID_FAIL_TO_RENEW, GRACE_PERIOD_EXPIRED, EXPIRED, REFUND/REVOKE).
+- `POST /google/image-access/grant`, `POST /apple/image-access/grant`, `POST /image-access/check-batch`: per-image unlock flow. The batch check accepts an optional `bot_id`; an active bot subscription unlocks all requested images.
+- `POST /google/bot-subscription/verify`: verifies a Google per-bot subscription purchase and records it (client-driven; the RTDN webhook has no bot_id).
+- `POST /apple/bot-subscription/grant`: verifies an Apple per-bot subscription transaction and records it.
+- `GET /bot-subscription/check`: subscription status for (user_id, bot_id). An active subscription also makes `GET /google/chat-access/check` return true.
 - `GET /transactions`: user transaction history.
 - `GET /transactions/balance`: reward balance.
 - `POST /credits/deduct` and `POST /credits/increment`: protected by JWT middleware.
@@ -187,6 +194,7 @@ Route modules:
 - `src/routes/chat_access.rs`: Google chat-access grant/check flow.
 - `src/routes/apple_chat_access.rs`: Apple app account token, transaction grant, and server notification flow.
 - `src/routes/apple_billing_helpers.rs`: App Store Server API and JWS verification helpers.
+- `src/routes/bot_subscription.rs`: per-bot auto-renewable subscription flow for both stores (verify/grant/check, RTDN and Apple-notification lifecycle handlers, renewal rewards). Product IDs must start with `bot_sub` (`BOT_SUBSCRIPTION_PRODUCT_PREFIX` in `src/consts.rs`) — one store product per bot.
 - `src/routes/goole_play_billing_helpers.rs`: Google Play API helpers. The filename contains a typo: `goole`, not `google`.
 - `src/routes/purchase_token_helpers.rs`: purchase token DB helpers.
 - `src/routes/transactions.rs`: transaction list and balance.

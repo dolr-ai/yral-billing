@@ -333,7 +333,7 @@ pub async fn fetch_apple_transaction_info(
         product_id: product_id.to_string(),
         app_account_token: Some(app_account_token),
         revocation_date: None,
-        expires_date: None,
+        expires_date: Some((chrono::Utc::now() + chrono::Duration::days(7)).timestamp_millis()),
         environment: Some("Sandbox".to_string()),
     })
 }
