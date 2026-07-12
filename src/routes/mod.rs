@@ -1,8 +1,11 @@
 pub mod apple_billing_helpers;
 pub mod apple_chat_access;
+pub mod apple_image_access;
+pub mod bot_subscription;
 pub mod chat_access;
 pub mod credits;
 pub mod goole_play_billing_helpers;
+pub mod image_access;
 pub mod purchase;
 pub mod purchase_token_helpers;
 pub mod rtdn;

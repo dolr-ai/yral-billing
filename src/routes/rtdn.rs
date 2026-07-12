@@ -303,6 +303,20 @@ async fn handle_subscription_notification(
     )
     .await?;
 
+    // Per-bot subscriptions are keyed off the purchase token and the stored
+    // row (the RTDN payload has no bot_id), so they branch off before the
+    // yral-pro user_id extraction and linked-token handling below.
+    if crate::consts::is_bot_subscription_product(subscription_id) {
+        let mut conn = app_state.get_db_connection()?;
+        crate::routes::bot_subscription::apply_bot_subscription_rtdn(
+            &mut conn,
+            notification_type,
+            purchase_token,
+            &google_play_subscription_response,
+        )?;
+        return Ok(());
+    }
+
     let user_id = google_play_subscription_response
         .external_account_identifiers
         .clone()

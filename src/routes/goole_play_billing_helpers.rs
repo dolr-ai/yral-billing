@@ -85,7 +85,7 @@ pub async fn fetch_google_play_purchase_details(
         acknowledgement_state: "ACKNOWLEDGEMENT_STATE_PENDING".to_string(),
         line_items: vec![SubscriptionLineItem {
             product_id: "mock-product-id".to_string(),
-            expiry_time: Some("2024-01-01T00:00:00.000Z".to_string()),
+            expiry_time: Some((chrono::Utc::now() + chrono::Duration::days(7)).to_rfc3339()),
             auto_renewing: Some(true),
             price_change_state: Some("PRICE_CHANGE_STATE_APPLIED".to_string()),
         }],

@@ -25,6 +25,35 @@ diesel::table! {
 }
 
 diesel::table! {
+    bot_subscriptions (id) {
+        id -> Text,
+        purchase_source -> Text,
+        purchase_token -> Text,
+        user_id -> Text,
+        bot_id -> Text,
+        product_id -> Text,
+        status -> Text,
+        started_at -> Timestamp,
+        updated_at -> Timestamp,
+        expires_at -> Timestamp,
+    }
+}
+
+diesel::table! {
+    image_access (id) {
+        id -> Text,
+        purchase_source -> Text,
+        purchase_token -> Text,
+        user_id -> Text,
+        bot_id -> Text,
+        image_id -> Text,
+        status -> Text,
+        granted_at -> Timestamp,
+        updated_at -> Timestamp,
+    }
+}
+
+diesel::table! {
     purchase_tokens (id) {
         id -> Text,
         user_id -> Text,
@@ -51,6 +80,8 @@ diesel::table! {
 diesel::allow_tables_to_appear_in_same_query!(
     apple_app_account_tokens,
     bot_chat_access,
+    bot_subscriptions,
+    image_access,
     purchase_tokens,
     transactions,
 );

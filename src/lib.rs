@@ -23,8 +23,13 @@ use routes::apple_chat_access::{
     get_or_create_apple_app_account_token, grant_apple_chat_access,
     handle_apple_server_notification,
 };
+use routes::apple_image_access::grant_apple_image_access;
+use routes::bot_subscription::{
+    check_bot_subscription, grant_apple_bot_subscription, verify_google_bot_subscription,
+};
 use routes::chat_access::{check_chat_access, grant_chat_access};
 use routes::credits::{deduct_credits, increment_credits};
+use routes::image_access::{check_image_access_batch, grant_image_access};
 use routes::purchase::verify_purchase;
 use routes::rtdn::handle_rtdn_webhook;
 use routes::transactions::{get_balance, get_user_transactions};
@@ -34,9 +39,12 @@ use std::sync::Arc;
 use types::{
     AckData, AckRequest, ApiResponse, AppleAppAccountTokenRequest, AppleAppAccountTokenResponse,
     AppleEnvironment, AppleServerNotificationRequest, BalanceResponse, BotChatAccessStatus,
-    ChatAccessResponse, CreditRequest, EmptyData, GrantAppleChatAccessRequest,
-    GrantChatAccessRequest, PurchaseSource, PurchaseTokenStatus, TransactionResponse,
-    TransactionType, VerifyRequest,
+    BotSubscriptionCheckResponse, BotSubscriptionStatus, ChatAccessResponse, CreditRequest,
+    EmptyData, GrantAppleBotSubscriptionRequest, GrantAppleChatAccessRequest,
+    GrantAppleImageAccessRequest, GrantChatAccessRequest, GrantImageAccessRequest,
+    ImageAccessCheckBatchRequest, ImageAccessCheckBatchResponse, PurchaseSource,
+    PurchaseTokenStatus, TransactionResponse, TransactionType, VerifyBotSubscriptionRequest,
+    VerifyRequest,
 };
 use utoipa::OpenApi;
 
@@ -148,6 +156,12 @@ impl AppState {
         routes::apple_chat_access::grant_apple_chat_access,
         routes::apple_chat_access::handle_apple_server_notification,
         routes::chat_access::check_chat_access,
+        routes::image_access::grant_image_access,
+        routes::image_access::check_image_access_batch,
+        routes::apple_image_access::grant_apple_image_access,
+        routes::bot_subscription::verify_google_bot_subscription,
+        routes::bot_subscription::grant_apple_bot_subscription,
+        routes::bot_subscription::check_bot_subscription,
         routes::transactions::get_user_transactions,
         routes::transactions::get_balance,
         health_check
@@ -159,6 +173,10 @@ impl AppState {
             GrantChatAccessRequest, GrantAppleChatAccessRequest, AppleEnvironment,
             AppleAppAccountTokenRequest, AppleAppAccountTokenResponse,
             AppleServerNotificationRequest, ChatAccessResponse, BotChatAccessStatus,
+            GrantImageAccessRequest, GrantAppleImageAccessRequest,
+            ImageAccessCheckBatchRequest, ImageAccessCheckBatchResponse,
+            VerifyBotSubscriptionRequest, GrantAppleBotSubscriptionRequest,
+            BotSubscriptionCheckResponse, BotSubscriptionStatus,
             PurchaseSource, TransactionResponse, TransactionType, BalanceResponse
         )
     ),
@@ -167,6 +185,8 @@ impl AppState {
         (name = "Subscription Verification", description = "Google Play subscription verification endpoints"),
         (name = "Credits", description = "User credit management endpoints"),
         (name = "Chat Access", description = "Bot chat access grant and check endpoints"),
+        (name = "Image Access", description = "Per-image unlock grant and batch check endpoints"),
+        (name = "Bot Subscription", description = "Per-bot auto-renewable subscription endpoints"),
         (name = "Transactions", description = "Transaction history and reward balance endpoints"),
         (name = "Health", description = "Health check endpoints")
     ),
@@ -265,6 +285,18 @@ pub fn run() {
                 post(get_or_create_apple_app_account_token),
             )
             .route("/apple/chat-access/grant", post(grant_apple_chat_access))
+            .route("/google/image-access/grant", post(grant_image_access))
+            .route("/apple/image-access/grant", post(grant_apple_image_access))
+            .route("/image-access/check-batch", post(check_image_access_batch))
+            .route(
+                "/google/bot-subscription/verify",
+                post(verify_google_bot_subscription),
+            )
+            .route(
+                "/apple/bot-subscription/grant",
+                post(grant_apple_bot_subscription),
+            )
+            .route("/bot-subscription/check", get(check_bot_subscription))
             .route(
                 "/apple/server-notifications",
                 post(handle_apple_server_notification),
