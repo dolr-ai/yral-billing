@@ -170,7 +170,11 @@ impl GooglePublicKey {
         // Validate the token and extract claims
         let mut validation = Validation::new(Algorithm::RS256);
         validation.set_issuer(&["https://accounts.google.com", "account.google.com"]);
-        validation.set_audience(&["https://billing.yral.com"]);
+        // Must match the "Audience" field on the Pub/Sub push subscription
+        // that delivers Google RTDN webhooks.
+        let audience = std::env::var("RTDN_EXPECTED_AUDIENCE")
+            .unwrap_or_else(|_| "https://billing.yral.com".to_string());
+        validation.set_audience(&[audience]);
         validation.validate_exp = true;
 
         let token_data = decode::<GoogleClaims>(token, &decoding_key, &validation)?;
