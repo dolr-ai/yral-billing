@@ -89,6 +89,35 @@ async fn test_verify_purchase_route() {
 }
 
 #[tokio::test]
+async fn test_verify_purchase_rejects_bot_subscription_products() {
+    let _db_guard = TestDbGuard::new();
+
+    let app = create_test_app().await;
+
+    let payload = VerifyRequest {
+        user_id: format!("test_user_{}", uuid::Uuid::new_v4()),
+        package_name: "com.example".to_string(),
+        product_id: "bot_sub_tara".to_string(),
+        purchase_token: format!("test_token_{}", uuid::Uuid::new_v4()),
+    };
+    let req = Request::builder()
+        .method("POST")
+        .uri("/verify")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+        .unwrap();
+
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let body_bytes = axum::body::to_bytes(res.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body_str = String::from_utf8(body_bytes.to_vec()).unwrap();
+    assert!(body_str.contains("bot-subscription"));
+}
+
+#[tokio::test]
 async fn test_purchase_token_reuse_prevention() {
     use yral_billing::model::PurchaseToken;
     use yral_billing::schema::purchase_tokens;

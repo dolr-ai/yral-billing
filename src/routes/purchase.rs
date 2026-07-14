@@ -70,6 +70,18 @@ async fn process_purchase_token(
 ) -> AppResult<()> {
     use crate::schema::purchase_tokens::dsl::*;
 
+    // Per-bot subscriptions have their own flow; letting them through here
+    // would record an account-plan purchase_tokens row for a bot product.
+    if payload
+        .product_id
+        .starts_with(crate::consts::BOT_SUBSCRIPTION_STORE_PREFIX)
+    {
+        return Err(AppError::BadRequest(format!(
+            "product '{}' is a per-bot subscription; use /google/bot-subscription/verify",
+            payload.product_id
+        )));
+    }
+
     let existing_token: Option<PurchaseToken> = purchase_tokens
         .filter(purchase_token.eq(&payload.purchase_token))
         .first(conn)

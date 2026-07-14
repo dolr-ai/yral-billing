@@ -21,11 +21,18 @@ pub const CHAT_ACCESS_PRODUCT_IDS: &[&str] = &["mock-product-id", "ios-chat-prod
 pub const BOT_SUBSCRIPTION_INITIAL_REWARD_PAISE: i64 = 900; // ₹9 intro period
 pub const BOT_SUBSCRIPTION_RENEWAL_REWARD_PAISE: i64 = 6900; // ₹69/week renewal
 
+/// Real store prefix for per-bot subscription products, shared by
+/// Play Console / App Store Connect (one product per bot, e.g. "bot_sub_<bot>").
+/// Unlike `BOT_SUBSCRIPTION_PRODUCT_PREFIX` this is never aliased by the local
+/// mock, so endpoints that must *reject* bot subscription products (e.g.
+/// /google/verify) can check it in every build.
+pub const BOT_SUBSCRIPTION_STORE_PREFIX: &str = "bot_sub";
+
 /// Per-bot auto-renewable subscription products share this prefix in
 /// Play Console / App Store Connect (one product per bot, e.g. "bot_sub_<bot>").
 /// The local mocks hardcode "mock-product-id", so the local build matches that.
 #[cfg(not(feature = "local"))]
-pub const BOT_SUBSCRIPTION_PRODUCT_PREFIX: &str = "bot_sub";
+pub const BOT_SUBSCRIPTION_PRODUCT_PREFIX: &str = BOT_SUBSCRIPTION_STORE_PREFIX;
 #[cfg(feature = "local")]
 pub const BOT_SUBSCRIPTION_PRODUCT_PREFIX: &str = "mock-product-id";
 

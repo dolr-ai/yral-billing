@@ -87,6 +87,7 @@ Runtime env used by billing:
 - `PORT`: defaults to `3000`.
 - `APP_ENV`: usually `production`.
 - `GOOGLE_SERVICE_ACCOUNT_JSON`: Google service account JSON for Google Play API access.
+- `RTDN_EXPECTED_AUDIENCE`: optional, defaults to `https://billing.yral.com`. Must match the "Audience" field on the Pub/Sub push subscription (`yral-billing` on topic `yral-subscriptions` in GCP project `yral-mobile`) that delivers Google RTDN webhooks. The push Endpoint URL and the Audience are independent: the endpoint points at this service, the audience is just the string stamped into the OIDC token.
 - `APPLE_ISSUER_ID`: App Store Connect issuer ID for Apple purchase verification.
 - `APPLE_KEY_ID`: App Store Connect API key ID.
 - `APPLE_BUNDLE_ID`: iOS app bundle ID used for App Store Server API calls.
