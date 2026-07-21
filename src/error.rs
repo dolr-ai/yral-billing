@@ -141,6 +141,10 @@ impl IntoResponse for AppError {
 
         if status_code.is_server_error() {
             sentry::capture_message(&error_message, sentry::Level::Error);
+        } else if status_code.is_client_error() {
+            // 4xx rejections (failed verifications, invalid tokens) are the
+            // signal for lost purchases; without this they are invisible.
+            sentry::capture_message(&error_message, sentry::Level::Warning);
         }
 
         let response_body = ApiResponse::<()>::error(error_message);
