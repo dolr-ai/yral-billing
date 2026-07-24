@@ -243,6 +243,30 @@ async fn root_redirect() -> Redirect {
     Redirect::permanent("/explore")
 }
 
+/// Logs every request line (method, path, status, latency) except /health,
+/// which Caddy polls every 30s. Bodies are never logged: purchase tokens
+/// and user ids ride in them.
+async fn log_requests(
+    req: axum::extract::Request,
+    next: middleware::Next,
+) -> axum::response::Response {
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    if path == "/health" {
+        return next.run(req).await;
+    }
+    let start = std::time::Instant::now();
+    let response = next.run(req).await;
+    println!(
+        "{} {} -> {} in {}ms",
+        method,
+        path,
+        response.status().as_u16(),
+        start.elapsed().as_millis()
+    );
+    response
+}
+
 pub fn run() {
     tokio::runtime::Runtime::new().unwrap().block_on(async {
         // Initialize Sentry
@@ -306,6 +330,7 @@ pub fn run() {
             .route("/api-doc/openapi.json", get(openapi_spec))
             .route("/explore", get(swagger_ui))
             .merge(protected_routes)
+            .layer(middleware::from_fn(log_requests))
             .with_state(app_state);
 
         let port: u16 = env::var("PORT")
